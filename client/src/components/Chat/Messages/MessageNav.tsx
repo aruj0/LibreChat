@@ -199,7 +199,7 @@ const indicatorButtonClasses = cn(
 );
 
 const dimIndicatorClasses =
-  'opacity-40 group-hover/nav:opacity-100 group-focus-within/nav:opacity-100';
+  'opacity-40 high-contrast:opacity-50 group-hover/nav:opacity-100 group-focus-within/nav:opacity-100';
 
 const MessageIndicator = memo(function MessageIndicator({
   entry,
@@ -231,7 +231,7 @@ const MessageIndicator = memo(function MessageIndicator({
         className={cn(
           'block rounded-full',
           baseSize,
-          isHighlighted ? 'bg-gray-800 dark:bg-gray-100' : 'bg-gray-400 dark:bg-gray-500',
+          isHighlighted ? 'bg-text-primary' : 'bg-border-heavy',
         )}
       />
     </button>
@@ -239,7 +239,7 @@ const MessageIndicator = memo(function MessageIndicator({
 });
 
 const chevronButtonClasses = cn(
-  '-mr-1 rounded-md p-0.5 text-text-tertiary opacity-40 transition-[color,opacity] duration-300',
+  '-mr-1 rounded-md p-0.5 text-text-tertiary opacity-40 transition-[color,opacity] duration-300 high-contrast:opacity-50',
   'group-hover/nav:text-text-secondary group-hover/nav:opacity-100',
   'group-focus-within/nav:text-text-secondary group-focus-within/nav:opacity-100',
   'group-hover/nav:hover:text-text-primary',

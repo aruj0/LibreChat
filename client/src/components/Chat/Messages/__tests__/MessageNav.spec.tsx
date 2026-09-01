@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, act, fireEvent } from '@testing-library/react';
+import { render, act, fireEvent, screen } from '@testing-library/react';
 
 type ReactNode = React.ReactNode;
 type RefObject<T> = React.RefObject<T>;
@@ -322,7 +322,17 @@ describe('MessageNav', () => {
       const ribB = container.querySelector('[data-msg-id="b"]') as HTMLElement;
       expect(ribA.className).toContain('opacity-100');
       expect(ribA.className).not.toContain('opacity-40');
+      expect(ribA.querySelector('span')).toHaveClass('bg-text-primary');
       expect(ribB.className).toContain('opacity-40');
+      expect(ribB.className).toContain('high-contrast:opacity-50');
+      expect(ribB.querySelector('span')).toHaveClass('bg-border-heavy');
+      expect(ribA.querySelector('span')?.className).not.toMatch(/bg-gray-|dark:bg-gray-/);
+      expect(ribB.querySelector('span')?.className).not.toMatch(/bg-gray-|dark:bg-gray-/);
+
+      const previous = screen.getByRole('button', { name: 'com_ui_message_nav_previous' });
+      const next = screen.getByRole('button', { name: 'com_ui_message_nav_next' });
+      expect(previous).toHaveClass('text-text-tertiary', 'high-contrast:opacity-50');
+      expect(next).toHaveClass('text-text-tertiary', 'high-contrast:opacity-50');
     });
   });
 
@@ -648,7 +658,7 @@ describe('MessageNav', () => {
       expect(current[0]).toHaveAttribute('data-msg-id', 'a');
 
       const activeLine = container.querySelector('[aria-current="true"] span');
-      expect(activeLine?.className).toContain('bg-gray-800');
+      expect(activeLine?.className).toContain('bg-text-primary');
     });
 
     it('chevron buttons expose a disabled state when there is nothing to navigate to', () => {
@@ -1040,7 +1050,7 @@ describe('MessageNav', () => {
       expect(writes.length).toBeGreaterThan(0);
     });
 
-    it('highlights only the hovered rib white, dimming the rest', () => {
+    it('highlights only the hovered rib, dimming the rest', () => {
       const messages = [
         buildMessage({ messageId: 'a', text: 'alpha', isCreatedByUser: true }),
         buildMessage({ messageId: 'b', text: 'bravo' }),
@@ -1056,9 +1066,11 @@ describe('MessageNav', () => {
       });
 
       const ribs = Array.from(container.querySelectorAll('[data-msg-id]'));
-      const white = ribs.filter((r) => r.querySelector('span')?.className.includes('bg-gray-800'));
-      expect(white).toHaveLength(1);
-      expect(white[0]).toHaveAttribute('data-msg-id', 'a');
+      const highlighted = ribs.filter((r) =>
+        r.querySelector('span')?.className.includes('bg-text-primary'),
+      );
+      expect(highlighted).toHaveLength(1);
+      expect(highlighted[0]).toHaveAttribute('data-msg-id', 'a');
     });
   });
 
@@ -1084,7 +1096,7 @@ describe('MessageNav', () => {
         jest.advanceTimersByTime(80);
       });
 
-      expect(ribA.querySelector('span')?.className).toContain('bg-gray-800');
+      expect(ribA.querySelector('span')?.className).toContain('bg-text-primary');
       const tip = document.body.querySelector('[role="tooltip"]');
       expect(tip).not.toBeNull();
       expect(tip).toHaveTextContent('alpha');
@@ -1106,10 +1118,10 @@ describe('MessageNav', () => {
       });
 
       expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
-      const white = Array.from(container.querySelectorAll('[data-msg-id] span')).filter((s) =>
-        s.className.includes('bg-gray-800'),
+      const highlighted = Array.from(container.querySelectorAll('[data-msg-id] span')).filter((s) =>
+        s.className.includes('bg-text-primary'),
       );
-      expect(white).toHaveLength(0);
+      expect(highlighted).toHaveLength(0);
     });
   });
 
@@ -1700,7 +1712,7 @@ describe('MessageNav', () => {
 
       expect(document.body.querySelector('[role="tooltip"]')).toHaveTextContent('message 3');
       const highlighted = Array.from(container.querySelectorAll('[data-msg-id]')).filter((r) =>
-        r.querySelector('span')?.className.includes('bg-gray-800'),
+        r.querySelector('span')?.className.includes('bg-text-primary'),
       );
       expect(highlighted.map((r) => r.getAttribute('data-msg-id'))).toEqual(['m-3']);
       rectSpy.mockRestore();

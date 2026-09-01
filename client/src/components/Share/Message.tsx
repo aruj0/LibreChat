@@ -2,7 +2,7 @@ import type { TMessageProps } from '~/common';
 import AuthorHeader from '~/components/Chat/Messages/Content/Parts/AuthorHeader';
 import MinimalHoverButtons from '~/components/Chat/Messages/MinimalHoverButtons';
 import MessageContent from '~/components/Chat/Messages/Content/MessageContent';
-import { getHeaderModelName } from '~/components/Chat/Messages/ui/HeaderLabel';
+import { getHeaderHoverLabel } from '~/components/Chat/Messages/ui/HeaderLabel';
 import { getHeaderPrefixForScreenReader, getMessageAriaLabel } from '~/utils';
 import SearchContent from '~/components/Chat/Messages/Content/SearchContent';
 import SiblingSwitch from '~/components/Chat/Messages/SiblingSwitch';
@@ -57,7 +57,7 @@ export default function Message(props: TMessageProps) {
             id={messageId}
             icon={<Icon message={message} conversation={conversation} />}
             label={messageLabel}
-            hoverLabel={getHeaderModelName(message.model)}
+            hoverLabel={getHeaderHoverLabel(conversation?.modelLabel, message.model)}
             timestamp={message.createdAt ?? message.clientTimestamp}
             ariaLabel={getMessageAriaLabel(message, localize)}
             headerPrefix={getHeaderPrefixForScreenReader(message, localize)}

@@ -23,6 +23,28 @@ export function getHeaderModelName(
   );
 }
 
+/** A configured `modelLabel` is a deliberate stand-in for the model name: an
+ *  operator's model spec preset, a user's own preset, or a custom endpoint whose
+ *  operator has chosen what its users see. The persisted `message.sender` and
+ *  the streaming placeholder already honour it (see `getResponseSender` and
+ *  `useGetSender`), so swapping the raw model back in on hover would undo the
+ *  same choice one interaction later. Skip the swap entirely in that case —
+ *  the sr-only "Model:" text goes with it, since it carries the same value.
+ *
+ *  Agent conversations are already exempt from surfacing the model for the
+ *  same reason; this extends the courtesy to every conversation that carries
+ *  a label. Callers pass `conversation.modelLabel` — a message has no such
+ *  field — followed by the same candidates `getHeaderModelName` takes. */
+export function getHeaderHoverLabel(
+  modelLabel: string | null | undefined,
+  ...candidates: Array<string | null | undefined>
+): string | undefined {
+  if (modelLabel != null && modelLabel !== '') {
+    return undefined;
+  }
+  return getHeaderModelName(...candidates);
+}
+
 /** Both names occupy one grid cell so the slot is sized by the longer of the
  *  two and neither reflows the header as they cross over.
  *

@@ -45,6 +45,7 @@ const {
   isHITLEnabled,
   captureAgentCheckpointGeneration,
   isContentFilterError,
+  isStepLimitError,
   deleteAgentCheckpoint,
   LIBRECHAT_CHECKPOINT_NAMESPACE_KEY,
   agentRequestsAskUserQuestion,
@@ -287,6 +288,11 @@ class AgentClient extends BaseClient {
      *  these before returning — otherwise job cleanup can race the persist.
      *  @type {Promise<void>[]} */
     this.pendingSubagentEmits = [];
+    /** Set when the graph exhausted its per-turn step budget (`recursionLimit`).
+     *  Read by `request.js`/`resume.js` to persist the row as `unfinished` with
+     *  `Constants.TOOL_CALL_LIMIT_FINISH_REASON` instead of publishing an error.
+     *  @type {boolean} */
+    this.stepLimitReached = false;
     /** Stable per-generation sequence for subagent usage events. Detached
      * usage is billed outside `collectedUsage`, so array length is no longer
      * a valid sequence source. @type {number} */
@@ -3777,6 +3783,25 @@ class AgentClient extends BaseClient {
           '[api/server/controllers/agents/client.js #sendCompletion] Operation aborted by user',
           { conversationId: this.conversationId, ...getSafeErrorMetadata(err) },
         );
+      } else if (isStepLimitError(err)) {
+        /**
+         * The graph ran out of supersteps. Everything already streamed is real work,
+         * so this terminates the turn as incomplete rather than failed: no ERROR part,
+         * and `request.js` persists the row `unfinished` with the tool-call-limit
+         * finish reason so the UI can offer to continue. Mirrors the abort contract:
+         * a turn that stopped early is not a turn that broke.
+         */
+        this.stepLimitReached = true;
+        logger.warn(
+          '[api/server/controllers/agents/client.js #sendCompletion] Tool call limit reached; ending the turn as incomplete',
+          {
+            conversationId: this.conversationId,
+            recursionLimit: resolveRecursionLimit(
+              this.options.req.config?.endpoints?.[EModelEndpoint.agents],
+              this.options.agent,
+            ),
+          },
+        );
       } else {
         logger.error(
           '[api/server/controllers/agents/client.js #sendCompletion] Unhandled error type',
@@ -4199,6 +4224,15 @@ class AgentClient extends BaseClient {
             conversationId: this.conversationId,
             ...getSafeErrorMetadata(err),
           },
+        );
+      } else if (isStepLimitError(err)) {
+        /** Same contract as the initial turn: incomplete, not failed. A resumed run
+         *  inherits the budget of a turn that already spent steps before pausing, so
+         *  this boundary is if anything more likely to be reached here. */
+        this.stepLimitReached = true;
+        logger.warn(
+          '[api/server/controllers/agents/client.js #resumeCompletion] Tool call limit reached; ending the resumed turn as incomplete',
+          { conversationId: this.conversationId },
         );
       } else {
         logger.error(

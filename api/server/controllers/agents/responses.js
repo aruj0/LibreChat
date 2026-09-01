@@ -51,6 +51,7 @@ const {
   isContentFilterError,
   getSafeErrorMetadata,
   createToolExecuteHandler,
+  resolveRecursionLimit,
   getRemoteAgentPermissions,
   resolveAgentScopedSkillIds,
   // Responses API
@@ -1125,6 +1126,7 @@ const executeResponse = async (envelope, { req, res }) => {
           requestBody: mcpRequestBody,
           ...(userMCPAuthMap != null && { userMCPAuthMap }),
         },
+        recursionLimit: resolveRecursionLimit(agentsEConfig, agent),
         signal: abortController.signal,
         streamMode: 'values',
         version: 'v2',
@@ -1319,6 +1321,7 @@ const executeResponse = async (envelope, { req, res }) => {
           requestBody: mcpRequestBody,
           ...(userMCPAuthMap != null && { userMCPAuthMap }),
         },
+        recursionLimit: resolveRecursionLimit(agentsEConfig, agent),
         signal: abortController.signal,
         streamMode: 'values',
         version: 'v2',

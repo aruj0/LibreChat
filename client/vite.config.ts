@@ -140,11 +140,11 @@ export default defineConfig(({ command }) => ({
       },
       includeAssets: [],
       manifest: {
-        name: 'LibreChat',
-        short_name: 'LibreChat',
+        name: 'Aralab GPT',
+        short_name: 'Aralab GPT',
         display: 'standalone',
-        background_color: '#000000',
-        theme_color: '#009688',
+        background_color: '#2D2C2E',
+        theme_color: '#2D2C2E',
         icons: [
           {
             src: 'assets/favicon-32x32.png',

@@ -102,6 +102,7 @@ const {
   resolveYouTubeInjectionConfig,
   decrementPendingRequest,
   maybePrewarmCodeSandbox,
+  agentRunName,
 } = require('@librechat/api');
 const {
   Run,
@@ -2939,7 +2940,7 @@ class AgentClient extends BaseClient {
       const agentsEConfig = appConfig.endpoints?.[EModelEndpoint.agents];
 
       config = {
-        runName: 'AgentRun',
+        runName: agentRunName(this.options.agent),
         configurable: {
           thread_id: this.conversationId,
           // LangGraph owns `checkpoint_ns` and resets it to '' at every root
@@ -3531,7 +3532,7 @@ class AgentClient extends BaseClient {
       const agentsEConfig = appConfig.endpoints?.[EModelEndpoint.agents];
 
       config = {
-        runName: 'AgentRun',
+        runName: agentRunName(this.options.agent),
         configurable: {
           thread_id: this.conversationId,
           checkpoint_ns: '',

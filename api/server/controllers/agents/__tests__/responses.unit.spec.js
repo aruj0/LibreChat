@@ -114,6 +114,11 @@ jest.mock('@librechat/api', () => ({
    *  before SDK formatting; the mock must expose it like any other used
    *  export or the call throws before the assertions run. */
   stripActivityLabelParts: jest.fn((payload) => payload),
+  /** The controller names the Langfuse trace after the primary agent so cost
+   *  groups per custom agent. Constant here on purpose: the helper's own
+   *  behaviour is covered in packages/api langfuse/traceName.spec.ts; these
+   *  suites only assert that the controller hands it the run's agents. */
+  agentRunName: jest.fn(() => 'AgentRun'),
   createRun: jest.fn().mockResolvedValue({
     processStream: jest.fn().mockResolvedValue(undefined),
   }),

@@ -41,6 +41,7 @@ import {
   createChunk,
   writeSSE,
 } from './handlers';
+import { agentRunName } from '~/langfuse/traceName';
 import { createSafeUser } from '~/utils';
 
 /**
@@ -595,7 +596,7 @@ export async function createAgentChatCompletion(
         await run.processStream(
           { messages },
           {
-            runName: 'AgentRun',
+            runName: agentRunName(initializedAgent),
             configurable: {
               thread_id: conversationId,
               user_id: userId,

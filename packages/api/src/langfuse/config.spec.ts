@@ -959,3 +959,70 @@ describe('buildLangfuseConfig user identity metadata', () => {
     expect('userName' in (cfg.metadata ?? {})).toBe(false);
   });
 });
+
+describe('buildLangfuseConfig user identity tags', () => {
+  const previous = process.env.LANGFUSE_TRACE_USER_IDENTITY;
+  afterEach(() => {
+    if (previous === undefined) {
+      delete process.env.LANGFUSE_TRACE_USER_IDENTITY;
+    } else {
+      process.env.LANGFUSE_TRACE_USER_IDENTITY = previous;
+    }
+  });
+
+  it('adds a user:<email> tag when enabled', async () => {
+    process.env.LANGFUSE_TRACE_USER_IDENTITY = 'true';
+    const { buildLangfuseConfig } = await import('./config');
+    const cfg = buildLangfuseConfig({
+      appConfig: undefined,
+      runId: 'run-1',
+      user: { email: 'ana@aralab.pt', name: 'Ana' },
+    });
+    expect(cfg.tags).toEqual(['user:ana@aralab.pt']);
+  });
+
+  it('lowercases the email so groups do not fragment on casing', async () => {
+    process.env.LANGFUSE_TRACE_USER_IDENTITY = 'true';
+    const { buildLangfuseConfig } = await import('./config');
+    const cfg = buildLangfuseConfig({
+      appConfig: undefined,
+      runId: 'run-1',
+      user: { email: '  Ana@Aralab.PT  ' },
+    });
+    expect(cfg.tags).toEqual(['user:ana@aralab.pt']);
+  });
+
+  it('adds no tag when the switch is off', async () => {
+    delete process.env.LANGFUSE_TRACE_USER_IDENTITY;
+    const { buildLangfuseConfig } = await import('./config');
+    const cfg = buildLangfuseConfig({
+      appConfig: undefined,
+      runId: 'run-1',
+      user: { email: 'ana@aralab.pt' },
+    });
+    expect(cfg.tags).toBeUndefined();
+  });
+
+  it('adds no tag when the user has no email', async () => {
+    process.env.LANGFUSE_TRACE_USER_IDENTITY = 'true';
+    const { buildLangfuseConfig } = await import('./config');
+    const cfg = buildLangfuseConfig({
+      appConfig: undefined,
+      runId: 'run-1',
+      user: { name: 'Ana' },
+    });
+    expect(cfg.tags).toBeUndefined();
+  });
+
+  it('keeps the tenant tag alongside the user tag', async () => {
+    process.env.LANGFUSE_TRACE_USER_IDENTITY = 'true';
+    const { buildLangfuseConfig } = await import('./config');
+    const cfg = buildLangfuseConfig({
+      appConfig: undefined,
+      runId: 'run-1',
+      tenantId: 'acme',
+      user: { email: 'ana@aralab.pt' },
+    });
+    expect(cfg.tags).toEqual(expect.arrayContaining(['user:ana@aralab.pt', 'tenant:acme']));
+  });
+});

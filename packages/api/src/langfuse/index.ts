@@ -8,3 +8,4 @@ export * from './prompts';
 export * from './reader';
 export * from './trace';
 export * from './session';
+export * from './traceName';

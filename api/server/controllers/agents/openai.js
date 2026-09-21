@@ -79,6 +79,7 @@ const {
   isTemporaryTurn,
   getModelEndUsage,
   hasEntityEmbeddings,
+  agentRunName,
 } = require('@librechat/api');
 const {
   buildSummarizationHandlers,
@@ -1146,7 +1147,7 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
       }
 
       const config = {
-        runName: 'AgentRun',
+        runName: agentRunName(runAgents),
         configurable: {
           thread_id: conversationId,
           user_id: userId,

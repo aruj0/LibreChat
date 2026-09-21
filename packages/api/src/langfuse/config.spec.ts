@@ -914,3 +914,48 @@ describe('buildLangfuseConfig', () => {
     ).not.toHaveProperty('additionalHeaders');
   });
 });
+
+describe('buildLangfuseConfig user identity metadata', () => {
+  const previous = process.env.LANGFUSE_TRACE_USER_IDENTITY;
+  afterEach(() => {
+    if (previous === undefined) {
+      delete process.env.LANGFUSE_TRACE_USER_IDENTITY;
+    } else {
+      process.env.LANGFUSE_TRACE_USER_IDENTITY = previous;
+    }
+  });
+
+  it('adds userEmail and userName to trace metadata when enabled', async () => {
+    process.env.LANGFUSE_TRACE_USER_IDENTITY = 'true';
+    const { buildLangfuseConfig } = await import('./config');
+    const cfg = buildLangfuseConfig({
+      appConfig: undefined,
+      runId: 'run-1',
+      user: { email: 'ana@aralab.pt', name: 'Ana' },
+    });
+    expect(cfg.metadata).toMatchObject({ userEmail: 'ana@aralab.pt', userName: 'Ana' });
+  });
+
+  it('adds nothing when the switch is off', async () => {
+    delete process.env.LANGFUSE_TRACE_USER_IDENTITY;
+    const { buildLangfuseConfig } = await import('./config');
+    const cfg = buildLangfuseConfig({
+      appConfig: undefined,
+      runId: 'run-1',
+      user: { email: 'ana@aralab.pt' },
+    });
+    expect(cfg.metadata?.userEmail).toBeUndefined();
+  });
+
+  it('skips missing fields instead of writing undefined', async () => {
+    process.env.LANGFUSE_TRACE_USER_IDENTITY = 'true';
+    const { buildLangfuseConfig } = await import('./config');
+    const cfg = buildLangfuseConfig({
+      appConfig: undefined,
+      runId: 'run-1',
+      user: { email: 'ana@aralab.pt' },
+    });
+    expect(cfg.metadata).toEqual(expect.objectContaining({ userEmail: 'ana@aralab.pt' }));
+    expect('userName' in (cfg.metadata ?? {})).toBe(false);
+  });
+});

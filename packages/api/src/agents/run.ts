@@ -1859,6 +1859,7 @@ export async function createRun({
       runId,
       tenantId: tenantId ?? user?.tenantId,
       centralTraceExportEnabled,
+      user,
     }),
     ...(enableToolOutputReferences && {
       toolOutputReferences: { enabled: true },

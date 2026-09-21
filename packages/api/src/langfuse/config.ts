@@ -58,6 +58,22 @@ function mergeTraceMetadata(
   };
 }
 
+function userIdentityMetadata(
+  user?: { email?: string | null; name?: string | null } | null,
+): Record<string, string> | undefined {
+  if (process.env.LANGFUSE_TRACE_USER_IDENTITY !== 'true' || user == null) {
+    return undefined;
+  }
+  const out: Record<string, string> = {};
+  if (typeof user.email === 'string' && user.email.trim() !== '') {
+    out.userEmail = user.email;
+  }
+  if (typeof user.name === 'string' && user.name.trim() !== '') {
+    out.userName = user.name;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function mergeTags(tags: string[] | undefined, tenantId?: string): string[] | undefined {
   if (!tenantId) {
     return tags;
@@ -156,6 +172,7 @@ export function buildLangfuseConfig({
   runId,
   tenantId,
   centralTraceExportEnabled = true,
+  user,
 }: {
   appConfig?: AppConfig;
   runId?: string;
@@ -166,6 +183,13 @@ export function buildLangfuseConfig({
    * to drop the central pipeline while preserving tenant fanout when available.
    */
   centralTraceExportEnabled?: boolean;
+  /**
+   * Requesting user, for human-readable identity on traces. Only email/name
+   * are read, and only when LANGFUSE_TRACE_USER_IDENTITY=true. Langfuse
+   * `userId` stays the Mongo id (it is shared runtime identity — MCP, tools,
+   * sub-agents); this puts the readable identity in trace metadata instead.
+   */
+  user?: { email?: string | null; name?: string | null } | null;
 } = {}): LangfuseRunConfig {
   const normalizedTenantId = normalizeString(tenantId);
   const config = appConfig?.langfuse;
@@ -173,7 +197,7 @@ export function buildLangfuseConfig({
   const langfuse: LangfuseRunConfigWithTraceAttributes = {
     deterministicTraceId: true,
   };
-  const metadata = mergeTraceMetadata(undefined, normalizedTenantId);
+  const metadata = mergeTraceMetadata(userIdentityMetadata(user), normalizedTenantId);
   const tags = mergeTags(undefined, normalizedTenantId);
   if (metadata) {
     langfuse.metadata = metadata;

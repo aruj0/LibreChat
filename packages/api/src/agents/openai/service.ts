@@ -1,4 +1,5 @@
 import type { LocatorTraversalReporter } from '../../protection/diagnostics';
+import { agentRunName } from '~/langfuse/traceName';
 /**
  * OpenAI-compatible chat completions service for agents.
  *
@@ -893,7 +894,7 @@ export async function createAgentChatCompletion(
             run.processStream(
               { messages },
               {
-                runName: 'AgentRun',
+                runName: agentRunName(initializedAgent),
                 configurable: {
                   thread_id: conversationId,
                   user_id: userId,

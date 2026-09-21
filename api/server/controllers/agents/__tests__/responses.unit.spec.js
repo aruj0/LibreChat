@@ -197,6 +197,11 @@ jest.mock('@librechat/agents', () => ({
 }));
 
 jest.mock('@librechat/api', () => ({
+  /** The controller names the Langfuse trace after the primary agent so cost
+   *  groups per custom agent. Constant here on purpose: the helper's own
+   *  behaviour is covered in packages/api langfuse/traceName.spec.ts; these
+   *  suites only assert that the controller hands it the run's agents. */
+  agentRunName: jest.fn(() => 'AgentRun'),
   getAgentErrorMetadata: (...args) =>
     jest.requireActual('@librechat/api').getAgentErrorMetadata(...args),
   /* Provisioning moved into this package; the controllers build the callback from it. */

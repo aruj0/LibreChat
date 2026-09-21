@@ -70,6 +70,26 @@ function mergeTraceMetadata(
   };
 }
 
+/**
+ * Human-readable per-user tag, so cost can be **grouped** by person.
+ * `metadata` is filter-only in the metrics API — only `tags` is a groupable
+ * dimension — and Langfuse `userId` stays the Mongo id (shared runtime
+ * identity: MCP, tools, sub-agents), so the email has to ride here.
+ *
+ * Deliberately the only identity tag: grouping by `tags` groups by the WHOLE
+ * array, so a second varying tag would fragment every row into per-combination
+ * groups. Agent identity lives in the trace name instead (`runName`).
+ *
+ * Lowercased so the same person never splits across two groups on casing.
+ */
+function userIdentityTags(user?: { email?: string | null } | null): string[] | undefined {
+  if (process.env.LANGFUSE_TRACE_USER_IDENTITY !== 'true' || user == null) {
+    return undefined;
+  }
+  const email = typeof user.email === 'string' ? user.email.trim().toLowerCase() : '';
+  return email !== '' ? [`user:${email}`] : undefined;
+}
+
 function mergeTags(tags: string[] | undefined, tenantId?: string): string[] | undefined {
   if (!tenantId) {
     return tags;
@@ -281,7 +301,7 @@ export function buildLangfuseConfig({
     buildLangfuseTraceMetadata({ trace: config?.trace, user, context: traceContext }),
     normalizedTenantId,
   );
-  const tags = mergeTags(undefined, normalizedTenantId);
+  const tags = mergeTags(userIdentityTags(user), normalizedTenantId);
   if (metadata) {
     langfuse.metadata = metadata;
   }

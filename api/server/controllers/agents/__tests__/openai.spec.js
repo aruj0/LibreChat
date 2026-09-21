@@ -174,6 +174,11 @@ jest.mock('@librechat/agents', () => ({
 }));
 
 jest.mock('@librechat/api', () => ({
+  /** The controller names the Langfuse trace after the primary agent so cost
+   *  groups per custom agent. Constant here on purpose: the helper's own
+   *  behaviour is covered in packages/api langfuse/traceName.spec.ts; these
+   *  suites only assert that the controller hands it the run's agents. */
+  agentRunName: jest.fn(() => 'AgentRun'),
   getAgentErrorMetadata: (...args) =>
     jest.requireActual('@librechat/api').getAgentErrorMetadata(...args),
   /* Provisioning moved into this package; the controllers build the callback from it. */
@@ -901,6 +906,13 @@ describe('OpenAIChatCompletionController', () => {
       }),
     );
     expect(createSubagentUsageSink).toHaveBeenCalledWith(expect.any(Array));
+    /** The Langfuse trace name is derived from the run's agents (primary
+     *  first), so cost groups per custom agent. */
+    const { agentRunName } = require('@librechat/api');
+    expect(agentRunName).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: 'agent-123' })]),
+    );
+    expect(agentRunName.mock.calls.at(-1)[0][0]).toMatchObject({ id: 'agent-123' });
   });
 
   it('uses collected usage for the non-streaming response', async () => {

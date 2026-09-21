@@ -183,6 +183,7 @@ const {
   isAgentRunCancellation,
   markCompactionOutcome,
   resolvePersistableCodeEnvironmentDecision,
+  agentRunName,
 } = require('@librechat/api');
 const {
   Run,
@@ -4504,7 +4505,7 @@ class AgentClient extends BaseClient {
       });
 
       config = {
-        runName: 'AgentRun',
+        runName: agentRunName(this.options.agent),
         configurable: {
           thread_id: this.conversationId,
           ...buildToolApprovalExecutionConfig(this.responseMessageId, this.jobCreatedAt),
@@ -5328,7 +5329,7 @@ class AgentClient extends BaseClient {
       );
 
       config = {
-        runName: 'AgentRun',
+        runName: agentRunName(this.options.agent),
         configurable: {
           thread_id: this.conversationId,
           ...buildToolApprovalExecutionConfig(this.responseMessageId, this.jobCreatedAt),

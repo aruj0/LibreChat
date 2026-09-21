@@ -91,6 +91,7 @@ const {
   createTerminalRunErrorObserver,
   announceReply,
   getConversationWriteContext,
+  agentRunName,
 } = require('@librechat/api');
 const {
   createResponsesToolEndCallback,
@@ -1360,7 +1361,7 @@ const executeResponse = async (envelope, { req, res }) => {
 
         // Process the stream
         const config = {
-          runName: 'AgentRun',
+          runName: agentRunName(runAgents),
           configurable: {
             thread_id: conversationId,
             user_id: userId,
@@ -1598,7 +1599,7 @@ const executeResponse = async (envelope, { req, res }) => {
         }
 
         const config = {
-          runName: 'AgentRun',
+          runName: agentRunName(runAgents),
           configurable: {
             thread_id: conversationId,
             user_id: userId,

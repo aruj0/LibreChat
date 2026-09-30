@@ -33,7 +33,9 @@ function file(id: string, overrides: Partial<TFile> = {}): TFile {
     usage: 0,
     source: FileSources.local,
     context: FileContext.message_attachment,
-    llmDeliveryPath: 'none',
+    /* 'provider': Aralab patch 5 keeps unified-UX 'none' uploads out of the vector queue,
+     * and these cases are about provisioning scope, not routing. */
+    llmDeliveryPath: 'provider',
     metadata: { destinationChosen: false },
     ...overrides,
   };

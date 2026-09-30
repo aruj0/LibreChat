@@ -33,6 +33,7 @@ import {
   isAnthropicVertexCredentials,
   getVertexDeploymentName,
 } from './vertex';
+import { installProviderRateLimitRetry } from '~/utils/rateLimitRetry';
 import { createSSRFSafeUndiciConnect } from '~/auth';
 import { getProxyDispatcher } from '~/utils/proxy';
 import { mergeHeaders } from '~/utils/headers';
@@ -135,6 +136,8 @@ function getLLMConfig(
   credentials: string | AnthropicCredentials | undefined,
   options: AnthropicConfigOptions = {},
 ): AnthropicLLMConfigResult {
+  /** Aralab patch 6: retry provider rate limits (5 s, 10 s, 20 s) before the turn fails. */
+  installProviderRateLimitRetry();
   /**
    * Persisted agent `model_parameters` may round-trip `thinking` as the full
    * Anthropic object `{ type: 'adaptive', display: 'omitted' }` rather than a

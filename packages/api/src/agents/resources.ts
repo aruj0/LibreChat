@@ -601,8 +601,13 @@ const computeProvisionState = async ({
     /* The same predicate the upload path files a consumer with. Queueing a type the
      * vector store cannot read sends it to RAG on the next search call and aborts the
      * tool when extraction refuses it. */
+    /* Aralab patch 5: a unified-UX upload routed to "none" is stored for MCP tools, not
+     * for search. Queueing it here embeds it on the agent's first file_search call (a
+     * 24.7 MB log became 291 RAG batches). Chooser uploads keep their explicit choice. */
+    const isToolOnlyUpload = file.llmDeliveryPath === 'none' && !cameFromChooser(file);
     if (
       needsVectorDB &&
+      !isToolOnlyUpload &&
       allowsResource(file, EToolResources.file_search) &&
       canToolResourceConsume(EToolResources.file_search, file.type ?? '') &&
       !isEmbeddedForNamespace(file, namespaceId) &&

@@ -1867,7 +1867,10 @@ describe('primeResources', () => {
       expect(attachmentIds).toContain('none-file');
     });
 
-    it('should include llmDeliveryPath "none" files in lazy provisioning state', async () => {
+    /* Aralab patch 5: a unified-UX upload routed to "none" is stored for MCP tools only
+     * (fault-finder-mcp reads uploads/<userId>/). Embedding it on the agent's first
+     * file_search call pushed a 24.7 MB CSV through 291 RAG batches (30/09/2026). */
+    it('should queue llmDeliveryPath "none" files for code env but not the vector DB', async () => {
       const noneFile: TFile = {
         user: 'user1',
         file_id: 'none-file',
@@ -1898,7 +1901,9 @@ describe('primeResources', () => {
 
       expect(result.attachments?.map((f) => f?.file_id)).toContain('none-file');
       expect(result.provisionState?.codeEnvFiles.map((f) => f.file_id)).toContain('none-file');
-      expect(result.provisionState?.vectorDBFiles.map((f) => f.file_id)).toContain('none-file');
+      expect(result.provisionState?.vectorDBFiles ?? []).not.toContainEqual(
+        expect.objectContaining({ file_id: 'none-file' }),
+      );
     });
 
     it('provisions nothing when the legacy destination chooser is active', async () => {
@@ -3011,7 +3016,8 @@ describe('primeResources', () => {
 
     it('queues a deferred candidate for provisioning without delivering it again', async () => {
       process.env.CODEAPI_AUTH_PROVIDER = 'librechat-jwt';
-      const deferred = makeCodeFile({ file_id: 'deferred-file' });
+      /* 'provider': patch 5 keeps unified-UX 'none' uploads out of the vector queue. */
+      const deferred = makeCodeFile({ file_id: 'deferred-file', llmDeliveryPath: 'provider' });
 
       const result = await primeResources({
         req: mockReq,

@@ -11,6 +11,7 @@ import {
 import type { GoogleClientOptions, VertexAIClientOptions } from '@librechat/agents';
 import type { GoogleAIToolType } from '@librechat/agents/langchain/google-common';
 import type * as t from '~/types';
+import { installProviderRateLimitRetry } from '~/utils/rateLimitRetry';
 import { mergeGoogleHeaders } from '~/utils/headers';
 import { isEnabled } from '~/utils';
 
@@ -547,6 +548,8 @@ export function getGoogleConfig(
    */
   reasoningEffort?: string;
 } {
+  /** Aralab patch 6: retry provider rate limits (5 s, 10 s, 20 s) before the turn fails. */
+  installProviderRateLimitRetry();
   let creds: t.GoogleCredentials = {};
   if (acceptRawApiKey && typeof credentials === 'string') {
     creds[AuthKeys.GOOGLE_API_KEY] = credentials;

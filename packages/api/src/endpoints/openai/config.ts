@@ -8,6 +8,7 @@ import { getGoogleConfig, stripGeminiFlashBlockedParams } from '~/endpoints/goog
 import { getLLMConfig as getAnthropicLLMConfig } from '~/endpoints/anthropic/llm';
 import { createSSRFSafeAgents, createSSRFSafeUndiciConnect } from '~/auth';
 import { getDirectDispatcher, getProxyDispatcher } from '~/utils/proxy';
+import { installProviderRateLimitRetry } from '~/utils/rateLimitRetry';
 import { constructAzureResponsesURL } from '~/utils/azure';
 import { transformToOpenAIConfig } from './transform';
 import { createFetch } from '~/utils/generators';
@@ -95,6 +96,8 @@ export function getOpenAIConfig(
   options: t.OpenAIConfigOptions = {},
   endpoint?: string | null,
 ): t.OpenAIConfigResult {
+  /** Aralab patch 6: retry provider rate limits (5 s, 10 s, 20 s) before the turn fails. */
+  installProviderRateLimitRetry();
   const {
     proxy,
     addParams,

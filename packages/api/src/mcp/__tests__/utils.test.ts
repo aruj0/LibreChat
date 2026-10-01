@@ -425,6 +425,20 @@ describe('redactServerSecrets', () => {
     expect((redacted as Record<string, unknown>).headers).toBeUndefined();
   });
 
+  it('treats {{LIBRECHAT_BODY_FILEIDS}} as a request-scoped BODY placeholder (Aralab patch 7)', () => {
+    const config: ParsedServerConfig = {
+      type: 'streamable-http',
+      url: 'https://infra.internal/mcp',
+      source: 'yaml',
+      headers: { 'X-Conversation-File-Ids': '{{LIBRECHAT_BODY_FILEIDS}}' },
+    };
+
+    expect(redactServerSecrets(config).requestScoped).toBe(true);
+    expect(getMCPRequestScope(config).requiredBodyFields).toContain('fileIds');
+    expect(getMissingRuntimeBodyPlaceholderFields(config, { fileIds: 'none' })).toEqual([]);
+    expect(getMissingRuntimeBodyPlaceholderFields(config, {})).toEqual(['fileIds']);
+  });
+
   it('should omit request-scoped metadata for ordinary and unsupported BODY placeholders', () => {
     expect(
       redactServerSecrets({

@@ -17,6 +17,8 @@ export type RequestBody = {
   fileTokenLimit?: number;
   conversationId?: string;
   parentMessageId?: string;
+  /** Aralab patch 7: comma-joined authorised run file ids, or 'none'. */
+  fileIds?: string;
   endpoint?: string;
   endpointType?: string;
   model?: string;

@@ -1469,6 +1469,8 @@ export async function initializeAgent(
   };
   const wantsProvisioning = wantsCodeFiles || wantsSearchFiles;
 
+  /** Aralab patch 7: the conversation's file refs, reused for `fileIds` below. */
+  let mcpConvoFileIds: string[] | null | undefined;
   if (
     authorizedRunFiles === undefined &&
     conversationId != null &&
@@ -1499,6 +1501,7 @@ export async function initializeAgent(
         : null,
     ]);
     const fileIds = convoFileIds ?? [];
+    mcpConvoFileIds = convoFileIds ?? [];
 
     /** Walk the parent chain and collect file_ids referenced by
      *  any message in the thread (`messages.files[].file_id` +
@@ -1761,6 +1764,37 @@ export async function initializeAgent(
     });
   }
 
+  const requestFileSet = new Set((authorizedRunFiles ?? requestFiles).map((file) => file.file_id));
+  /* Aralab patch 7: expose the conversation's file ids plus this request's authorised files
+   * to MCP headers ({{LIBRECHAT_BODY_FILEIDS}}). 'none', never '', because a blank BODY
+   * field makes getMissingRuntimeBodyPlaceholderFields refuse the MCP call. MCP tools resolve
+   * placeholders from `requestBody` (the controller's runtime body copy, see
+   * api/server/services/Endpoints/agents/initialize.js `runtimeRequestBody`), not from
+   * req.body, so both are set. Handoff/added agents share that body object and must not
+   * overwrite the primary agent's value. */
+  if (isInitialAgent || requestBody?.fileIds == null) {
+    /* Child agents (authorizedRunFiles) must not read parent conversation history. */
+    if (
+      mcpConvoFileIds === undefined &&
+      authorizedRunFiles === undefined &&
+      conversationId != null
+    ) {
+      mcpConvoFileIds =
+        (await (readResolvedConversationFiles(runtime, conversationId) ??
+          db.getConvoFiles(conversationId))) ?? [];
+    }
+    const ids = [...new Set([...(mcpConvoFileIds ?? []), ...requestFileSet])].filter(
+      (id) => typeof id === 'string' && id.length > 0,
+    );
+    const fileIds = ids.length > 0 ? ids.join(',') : 'none';
+    if (requestBody) {
+      requestBody.fileIds = fileIds;
+    }
+    if (params.req?.body) {
+      (params.req.body as RequestBody).fileIds = fileIds;
+    }
+  }
+
   const {
     attachments: primedAttachments,
     requestAttachments: primedRequestAttachments,
@@ -1779,7 +1813,7 @@ export async function initializeAgent(
       ? (Promise.resolve(currentFiles) as unknown as Promise<TFile[]>)
       : undefined,
     tool_resources: runtimeToolResources,
-    requestFileSet: new Set((authorizedRunFiles ?? requestFiles).map((file) => file.file_id)),
+    requestFileSet,
     enabledToolResources: toolResourceSet,
     checkSessionsAlive: db.checkSessionsAlive,
     loadCodeApiKey: db.loadCodeApiKey,

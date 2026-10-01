@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { TokenExchangeMethodEnum } from 'librechat-data-provider';
 import type { MCPOptions } from 'librechat-data-provider';
 import type { IUser } from '@librechat/data-schemas';
+import type { RequestBody } from '~/types';
 import {
   createSafeUser,
   resolveHeaders,
@@ -552,6 +553,15 @@ describe('resolveHeaders', () => {
     const headers = { 'X-Conversation': '{{LIBRECHAT_BODY_CONVERSATIONID}}' };
     const result = resolveHeaders({ headers, body });
     expect(result['X-Conversation']).toBe('conv-123');
+  });
+
+  it('resolves {{LIBRECHAT_BODY_FILEIDS}} from the request body', () => {
+    const headers = { 'X-Conversation-File-Ids': '{{LIBRECHAT_BODY_FILEIDS}}' };
+    const out = processMCPEnv({
+      options: { type: 'streamable-http', url: 'http://x', headers } as MCPOptions,
+      body: { fileIds: 'a1,b2' } as RequestBody,
+    }) as { headers: Record<string, string> };
+    expect(out.headers['X-Conversation-File-Ids']).toBe('a1,b2');
   });
 
   it('should not resolve env vars introduced via LIBRECHAT_BODY placeholders', () => {

@@ -1556,6 +1556,118 @@ describe('initializeAgent — attachment scoping', () => {
     ).resolves.toBeDefined();
   });
 
+  describe('Aralab patch 7: fileIds for {{LIBRECHAT_BODY_FILEIDS}}', () => {
+    const makeFile = (file_id: string) =>
+      ({ file_id, filename: `${file_id}.txt`, type: 'text/plain', bytes: 1024 }) as IMongoFile;
+    type Body = Record<string, unknown>;
+
+    const run = async ({
+      convoFileIds,
+      requestFiles,
+      resendFiles = true,
+      requestBody = {},
+      isInitialAgent = true,
+      authorizedRunFiles,
+    }: {
+      convoFileIds: string[] | null;
+      requestFiles?: IMongoFile[];
+      resendFiles?: boolean;
+      requestBody?: Body;
+      isInitialAgent?: boolean;
+      authorizedRunFiles?: TFile[];
+    }) => {
+      const { filterFilesByEndpointRuntimeConfig } = jest.requireMock('~/files') as {
+        filterFilesByEndpointRuntimeConfig: jest.Mock;
+      };
+      const { agent, req, res, loadTools, db } = createMocks();
+      (req as unknown as { body: Body }).body = {};
+      mockExtractLibreChatParams.mockReturnValueOnce({
+        resendFiles,
+        maxContextTokens: undefined,
+        modelOptions: { model: agent.model },
+      });
+      (db.getConvoFiles as jest.Mock).mockResolvedValue(convoFileIds);
+      (db.getFiles as jest.Mock).mockResolvedValue([
+        ...(convoFileIds ?? []).map(makeFile),
+        ...(requestFiles ?? []),
+      ]);
+      filterFilesByEndpointRuntimeConfig.mockImplementation(
+        (_config: ServerRequest['config'], { files }: { files: IMongoFile[] }) => files,
+      );
+      await initializeAgent(
+        {
+          req,
+          res,
+          agent,
+          loadTools,
+          requestFiles,
+          authorizedRunFiles,
+          requestBody,
+          conversationId: 'c1',
+          endpointOption: { endpoint: EModelEndpoint.agents },
+          allowedProviders: new Set([Providers.OPENAI]),
+          isInitialAgent,
+        },
+        db,
+      );
+      return { requestBody, reqBody: (req as unknown as { body: Body }).body, db };
+    };
+
+    it('unions conversation files and the request file (a)', async () => {
+      const { requestBody, reqBody, db } = await run({
+        convoFileIds: ['convo-1', 'convo-2'],
+        requestFiles: [makeFile('request-1'), makeFile('convo-1')],
+      });
+      expect(requestBody.fileIds).toBe('convo-1,convo-2,request-1');
+      expect(reqBody.fileIds).toBe('convo-1,convo-2,request-1');
+      expect(db.getConvoFiles).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the conversation files on a turn with no attachment (b)', async () => {
+      const { requestBody } = await run({ convoFileIds: ['convo-1', 'convo-2'] });
+      expect(requestBody.fileIds).toBe('convo-1,convo-2');
+    });
+
+    it('fetches conversation files even when resend/provisioning skipped them', async () => {
+      const { requestBody, db } = await run({ convoFileIds: ['convo-1'], resendFiles: false });
+      expect(requestBody.fileIds).toBe('convo-1');
+      expect(db.getConvoFiles).toHaveBeenCalledTimes(1);
+    });
+
+    it('handles a new conversation (getConvoFiles null) with one request file (c)', async () => {
+      const { requestBody } = await run({ convoFileIds: null, requestFiles: [makeFile('r1')] });
+      expect(requestBody.fileIds).toBe('r1');
+    });
+
+    it("sets 'none' when the run has no files", async () => {
+      const { requestBody, reqBody } = await run({ convoFileIds: null });
+      expect(requestBody.fileIds).toBe('none');
+      expect(reqBody.fileIds).toBe('none');
+    });
+
+    it('does not let a handoff/added agent overwrite the primary agent value', async () => {
+      const shared: Body = { fileIds: 'convo-1,request-1' };
+      await run({
+        convoFileIds: ['other'],
+        requestBody: shared,
+        isInitialAgent: false,
+        authorizedRunFiles: [{ ...makeFile('auth-1'), user: 'user-1' }] as unknown as TFile[],
+      });
+      expect(shared.fileIds).toBe('convo-1,request-1');
+    });
+
+    it('sets fileIds for a non-initial agent when none was set yet', async () => {
+      const body: Body = {};
+      await run({
+        convoFileIds: [],
+        requestBody: body,
+        isInitialAgent: false,
+        authorizedRunFiles: [{ ...makeFile('auth-1'), user: 'user-1' }] as unknown as TFile[],
+      });
+      expect(body.fileIds).toBe('auth-1');
+    });
+  });
+
   it('does not apply model attachment limits to a tool-only current request file', async () => {
     const { filterFilesByEndpointRuntimeConfig } = jest.requireMock('~/files') as {
       filterFilesByEndpointRuntimeConfig: jest.Mock;

@@ -1687,7 +1687,7 @@ describe('initializeAgent — attachment scoping', () => {
       expect(requestBody.fileIds).toBe('a,b,r');
     });
 
-    it('caps at the 500 most recent ids and warns (f)', async () => {
+    it('caps at the 200 most recent ids and warns (f)', async () => {
       const { logger } = jest.requireActual('@librechat/data-schemas') as {
         logger: { warn: (...args: unknown[]) => void };
       };
@@ -1696,12 +1696,12 @@ describe('initializeAgent — attachment scoping', () => {
       const messages = Array.from({ length: 600 }, (_, i) => msg(`f${599 - i}`));
       const { requestBody } = await run({ messages, requestFiles: [makeFile('req')] });
       const ids = String(requestBody.fileIds).split(',');
-      expect(ids).toHaveLength(500);
-      expect(new Set(ids).size).toBe(500);
+      expect(ids).toHaveLength(200);
+      expect(new Set(ids).size).toBe(200);
       expect(ids).toContain('req');
       expect(ids).toContain('f599');
-      expect(ids).toContain('f101');
-      expect(ids).not.toContain('f100');
+      expect(ids).toContain('f401');
+      expect(ids).not.toContain('f400');
       expect(ids).not.toContain('f0');
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('Aralab patch 7'));
       warn.mockRestore();

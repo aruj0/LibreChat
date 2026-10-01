@@ -1771,15 +1771,17 @@ export async function initializeAgent(
    * is often empty or partial while the messages carry the attachments, so from turn 2 on the
    * list would be 'none' and the consumer (fault-finder-mcp) would hide the user's file.
    * One query on the {conversationId, user, createdAt} index, newest first, projecting
-   * `files.file_id` only. Capped at FILE_IDS_CAP (the consumer rejects more), keeping the most
-   * recent. 'none', never '', because a blank BODY field makes
+   * `files.file_id` only. Capped at FILE_IDS_CAP = 200, keeping the most recent: the list
+   * travels in one MCP header, and 200 ids (~37 chars each) is ~7.4 KB, safely under Node's
+   * default 16 KB max header size (500 would be ~18 KB and get the request rejected).
+   * 'none', never '', because a blank BODY field makes
    * getMissingRuntimeBodyPlaceholderFields refuse the MCP call. MCP tools resolve
    * placeholders from `requestBody` (the controller's runtime body copy, see
    * api/server/services/Endpoints/agents/initialize.js `runtimeRequestBody`), not from
    * req.body, so both are set. Handoff/added agents share that body object and must not
    * overwrite the primary agent's value. */
   if (isInitialAgent || requestBody?.fileIds == null) {
-    const FILE_IDS_CAP = 500;
+    const FILE_IDS_CAP = 200;
     const isId = (id: unknown): id is string => typeof id === 'string' && id.length > 0;
     const requestIds = [...requestFileSet].filter(isId);
     /** Per message, newest message first. Child agents (authorizedRunFiles) must not read

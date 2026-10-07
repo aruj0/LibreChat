@@ -2331,7 +2331,13 @@ describe('initializeAgent — attachment scoping', () => {
       expect(result.provisionState?.vectorDBFiles ?? []).toEqual([]);
       expect(db.getConvoFiles).not.toHaveBeenCalled();
       if (!hasAnchor) {
-        expect(getMessages).not.toHaveBeenCalled();
+        /* Aralab patch 7 reads `files.file_id` from every message for
+         * {{LIBRECHAT_BODY_FILEIDS}} on each turn; the thread walk (the call this asserts
+         * against) must still not run without an anchor. */
+        const threadWalks = getMessages.mock.calls.filter(
+          ([, select]) => select !== 'files.file_id',
+        );
+        expect(threadWalks).toHaveLength(0);
       }
     },
   );

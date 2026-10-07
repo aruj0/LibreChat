@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { logger } = require('@librechat/data-schemas');
 const { Callback, formatAgentMessages } = require('@librechat/agents');
 const {
+  Constants,
   EModelEndpoint,
   ResourceType,
   PermissionBits,
@@ -127,6 +128,12 @@ const { resolveConversationTitle } = require('~/server/services/Endpoints/titleP
 const { getMCPManager } = require('~/config');
 const { logViolation } = require('~/cache');
 const db = require('~/models');
+/* Aralab patch 8: save every Agents API call (see apiPersistence.js). */
+const {
+  buildApiMetadata,
+  contentToText,
+  shouldPersistApiCall,
+} = require('~/server/controllers/agents/apiPersistence');
 
 const filterFilesByRemoteAgentAccess = (params) =>
   filterFilesByAgentAccess({ ...params, resourceType: ResourceType.REMOTE_AGENT });
@@ -371,27 +378,44 @@ async function loadPreviousMessages(conversationId, userId) {
  * @param {string} conversationId
  * @param {Array} inputMessages - Internal format messages
  * @param {string} agentId
- * @returns {Promise<void>}
+ * @param {string | null} [parentMessageId] - Aralab patch 8: parent of the first user message
+ * @param {object} [metadata] - Aralab patch 8: `{ source, api, apiKeyName }`
+ * @returns {Promise<string>} the last saved user message id (the reply's parent)
  */
-async function saveInputMessages(req, conversationId, inputMessages, agentId) {
+async function saveInputMessages(
+  req,
+  conversationId,
+  inputMessages,
+  agentId,
+  parentMessageId,
+  metadata,
+) {
+  /* Aralab patch 8: chain the turn (#14466 defect 3) instead of saving every row with
+   * `parentMessageId: null`, which leaves the UI with no message tree. */
+  let parentId = parentMessageId || Constants.NO_PARENT;
   for (const msg of inputMessages) {
     if (msg.role === 'user') {
+      const messageId = msg.messageId || nanoid();
+      const text = contentToText(msg.content);
       await db.saveMessage(
         getConversationWriteContext(req),
         {
-          messageId: msg.messageId || nanoid(),
+          messageId,
           conversationId,
-          parentMessageId: null,
+          parentMessageId: parentId,
           isCreatedByUser: true,
-          text: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+          text: text !== '' || typeof msg.content === 'string' ? text : JSON.stringify(msg.content),
           sender: 'User',
           endpoint: EModelEndpoint.agents,
           model: agentId,
+          ...(metadata != null && { metadata }),
         },
         { context: 'Responses API - save user input' },
       );
+      parentId = messageId;
     }
   }
+  return parentId;
 }
 
 /**
@@ -402,6 +426,9 @@ async function saveInputMessages(req, conversationId, inputMessages, agentId) {
  * @param {import('@librechat/api').Response} response
  * @param {string} agentId
  * @param {number | undefined} visibleOutputTokens
+ * @param {string} [parentMessageId] - Aralab patch 8
+ * @param {object} [metadata] - Aralab patch 8
+ * @param {string} [sender] - Aralab patch 8: the agent's name
  * @returns {Promise<void>}
  */
 async function saveResponseOutput(
@@ -411,6 +438,9 @@ async function saveResponseOutput(
   response,
   agentId,
   visibleOutputTokens,
+  parentMessageId,
+  metadata,
+  sender,
 ) {
   // Extract text content from output items
   let responseText = '';
@@ -432,11 +462,13 @@ async function saveResponseOutput(
     {
       messageId: responseId,
       conversationId,
-      parentMessageId: null,
+      /* Aralab patch 8: reply hangs off this turn's last user message. */
+      parentMessageId: parentMessageId || Constants.NO_PARENT,
       isCreatedByUser: false,
       ...langfuseTraceFields,
       text: responseText,
-      sender: 'Agent',
+      sender: sender || 'Agent',
+      ...(metadata != null && { metadata }),
       endpoint: EModelEndpoint.agents,
       model: agentId,
       finish_reason: response.status === 'completed' ? 'stop' : response.status,
@@ -1428,14 +1460,22 @@ const executeResponse = async (envelope, { req, res }) => {
           `[Responses API] Request ${responseId} completed in ${duration}ms (streaming)`,
         );
 
-        // Save to database if store: true
-        if (request.store === true) {
+        // Save to database if store: true (Aralab patch 8: or always, with AGENTS_API_PERSIST_ALL)
+        if (shouldPersistApiCall(request)) {
           try {
             // Save conversation
             await saveConversation(req, conversationId, agentId, agent, codeEnvironmentDecision);
 
             // Save input messages
-            await saveInputMessages(req, conversationId, inputMessages, agentId);
+            const apiMetadata = await buildApiMetadata(req, 'responses');
+            const replyParentId = await saveInputMessages(
+              req,
+              conversationId,
+              inputMessages,
+              agentId,
+              previousMessages.at(-1)?.messageId,
+              apiMetadata,
+            );
 
             // Build response for saving (use tracker with buildResponse for streaming)
             const finalResponse = buildResponse(context, tracker, 'completed');
@@ -1446,6 +1486,9 @@ const executeResponse = async (envelope, { req, res }) => {
               finalResponse,
               agentId,
               tracker.usage.outputTokens,
+              replyParentId,
+              apiMetadata,
+              agent?.name,
             );
             await announceReply(db, {
               userId: req?.user?.id,
@@ -1673,11 +1716,19 @@ const executeResponse = async (envelope, { req, res }) => {
           buildResponsesUsage(collectedUsage),
         );
 
-        if (request.store === true) {
+        if (shouldPersistApiCall(request)) {
           try {
             await saveConversation(req, conversationId, agentId, agent, codeEnvironmentDecision);
 
-            await saveInputMessages(req, conversationId, inputMessages, agentId);
+            const apiMetadata = await buildApiMetadata(req, 'responses');
+            const replyParentId = await saveInputMessages(
+              req,
+              conversationId,
+              inputMessages,
+              agentId,
+              previousMessages.at(-1)?.messageId,
+              apiMetadata,
+            );
 
             const savedResponse = await saveResponseOutput(
               req,
@@ -1686,6 +1737,9 @@ const executeResponse = async (envelope, { req, res }) => {
               response,
               agentId,
               aggregator.usage.outputTokens,
+              replyParentId,
+              apiMetadata,
+              agent?.name,
             );
             await announceReply(db, {
               userId: req?.user?.id,

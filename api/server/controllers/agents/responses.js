@@ -139,6 +139,11 @@ const { resolveConversationTitle } = require('~/server/services/Endpoints/titleP
 const { getMCPManager } = require('~/config');
 const { logViolation } = require('~/cache');
 const db = require('~/models');
+/* Aralab patch 8: save every Agents API call (see apiPersistence.js). */
+const {
+  shouldPersistApiCall,
+  withApiMetadata,
+} = require('~/server/controllers/agents/apiPersistence');
 
 const filterFilesByRemoteAgentAccess = (params) =>
   filterFilesByAgentAccess({ ...params, resourceType: ResourceType.REMOTE_AGENT });
@@ -478,7 +483,8 @@ const executeResponse = async (envelope, { req, res }) => {
   const turn = createResponseTurn({
     runtime: responseRuntime,
     context,
-    requestedStore: request.store,
+    /* Aralab patch 8: store: true, or always with AGENTS_API_PERSIST_ALL. */
+    requestedStore: shouldPersistApiCall(request),
     logger,
   });
   /** @type {Promise<import('librechat-data-provider').TAttachment | null>[]} */
@@ -1302,7 +1308,7 @@ const executeResponse = async (envelope, { req, res }) => {
           },
           {
             saveConvo: db.saveConvo,
-            saveMessage: db.saveMessage,
+            saveMessage: withApiMetadata(db.saveMessage, req, agent?.name),
             announceReply: announceReply.bind(null, db),
             resolveTitle: resolveConversationTitle,
             traceFields: getLangfuseTraceMessageFields,
@@ -1539,7 +1545,7 @@ const executeResponse = async (envelope, { req, res }) => {
           },
           {
             saveConvo: db.saveConvo,
-            saveMessage: db.saveMessage,
+            saveMessage: withApiMetadata(db.saveMessage, req, agent?.name),
             announceReply: announceReply.bind(null, db),
             resolveTitle: resolveConversationTitle,
             traceFields: getLangfuseTraceMessageFields,

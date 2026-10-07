@@ -1,4 +1,5 @@
 const { nanoid } = require('nanoid');
+const { v4: uuidv4 } = require('uuid');
 const { logger } = require('@librechat/data-schemas');
 const { Callback, formatAgentMessages } = require('@librechat/agents');
 const {
@@ -117,6 +118,12 @@ const { resolveConfigServers } = require('~/server/services/MCP');
 const { getMCPManager } = require('~/config');
 const { logViolation } = require('~/cache');
 const db = require('~/models');
+/* Aralab patch 8: save Agents API calls (see apiPersistence.js). */
+const {
+  isPersistAllEnabled,
+  lastUserText,
+  persistApiTurn,
+} = require('~/server/controllers/agents/apiPersistence');
 
 const filterFilesByRemoteAgentAccess = (params) =>
   filterFilesByAgentAccess({ ...params, resourceType: ResourceType.REMOTE_AGENT });
@@ -398,7 +405,9 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
     `[OpenAI API] Response ${responseId} started for agent ${agentId}, stream: ${request.stream}`,
   );
 
-  const conversationId = request.conversation_id ?? nanoid();
+  /* Aralab patch 8: a saved conversation needs a UUID id (`saveMessage` drops anything else). */
+  const persistAll = isPersistAllEnabled();
+  const conversationId = request.conversation_id ?? (persistAll ? uuidv4() : nanoid());
   /** @type {Promise<import('librechat-data-provider').TAttachment | null>[]} */
   const artifactPromises = [];
   let artifactWritesCovered = false;
@@ -834,6 +843,8 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
 
       // Create tracker for streaming or aggregator for non-streaming
       const tracker = isStreaming ? createOpenAIStreamTracker() : null;
+      /* Aralab patch 8: the stream tracker keeps no text, so collect it for saving. */
+      let streamedText = '';
       const aggregator = isStreaming ? null : createOpenAIContentAggregator();
       // Set up response for streaming
       if (isStreaming) {
@@ -988,6 +999,7 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
         }
         if (isStreaming) {
           tracker.addText();
+          streamedText += text;
           writeSSE(res, createChunk(context, { content: text }));
         } else {
           aggregator.addText(text);
@@ -1207,11 +1219,34 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
 
       const usage = buildCompletionUsage(collectedUsage);
 
+      /* Aralab patch 8: save this turn once the caller has its answer. Never throws. */
+      const persistTurn = (responseText) => {
+        if (!persistAll || execution.signal?.aborted === true) {
+          return;
+        }
+        execution.track(
+          persistApiTurn(req, {
+            api: 'chat.completions',
+            conversationId,
+            agent,
+            agentId,
+            isNewConversation: request.conversation_id == null,
+            userTexts: [lastUserText(request.messages)],
+            firstParentMessageId: parentMessageId,
+            responseMessageId: responseId,
+            responseText,
+            tokenCount: usage?.completion_tokens,
+            finishReason: 'stop',
+          }),
+        );
+      };
+
       // Finalize response
       const duration = Date.now() - requestStartTime;
       if (isStreaming) {
         sendFinalChunk(handlerConfig, 'stop', usage, true);
         res.end();
+        persistTurn(streamedText);
         logger.debug(`[OpenAI API] Response ${responseId} completed in ${duration}ms (streaming)`);
 
         // The HTTP response is complete, while destructive cleanup still waits for artifacts.
@@ -1249,6 +1284,7 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
           true,
         );
         res.json(response);
+        persistTurn(aggregator.getText());
         logger.debug(
           `[OpenAI API] Response ${responseId} completed in ${duration}ms (non-streaming)`,
         );

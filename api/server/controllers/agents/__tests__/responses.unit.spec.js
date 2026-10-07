@@ -650,6 +650,7 @@ jest.mock('~/models', () => ({
   getConvo: jest.fn().mockResolvedValue(null),
   readAdmittedConvoCodeEnvironmentDecision: jest.fn().mockResolvedValue(null),
   isSubagentOwnerAdmissible: jest.fn().mockResolvedValue(true),
+  getAgentApiKeyById: jest.fn().mockResolvedValue(null),
 }));
 
 let mockGlobalDiscoveredAgentConfigs = null;
@@ -804,6 +805,99 @@ describe('createResponse controller', () => {
       expect(db.saveConvo.mock.calls.at(-1)[1]).not.toHaveProperty('codeWorkspaces');
     },
   );
+
+  describe('Aralab patch 8: saving API calls', () => {
+    const NO_PARENT = '00000000-0000-0000-0000-000000000000';
+    const originalFlag = process.env.AGENTS_API_PERSIST_ALL;
+
+    afterEach(() => {
+      if (originalFlag === undefined) {
+        delete process.env.AGENTS_API_PERSIST_ALL;
+      } else {
+        process.env.AGENTS_API_PERSIST_ALL = originalFlag;
+      }
+    });
+
+    it('does not save without store: true when the flag is off', async () => {
+      delete process.env.AGENTS_API_PERSIST_ALL;
+      const db = require('~/models');
+
+      await createResponse(req, res);
+
+      expect(res.json).toHaveBeenCalled();
+      expect(db.saveConvo).not.toHaveBeenCalled();
+      expect(db.saveMessage).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])(
+      'saves a call without store, chained and marked, when the flag is on: stream=%s',
+      async (stream) => {
+        process.env.AGENTS_API_PERSIST_ALL = 'true';
+        const api = require('@librechat/api');
+        const db = require('~/models');
+        req.apiKeyId = 'key-1';
+        db.getAgentApiKeyById.mockResolvedValueOnce({ name: 'power-automate' });
+        api.validateResponseRequest.mockReturnValueOnce({ request: { ...req.body, stream } });
+        api.convertInputToMessages.mockReturnValueOnce([
+          { role: 'user', content: [{ type: 'input_text', text: 'Hello' }], messageId: 'in-1' },
+        ]);
+
+        await createResponse(req, res);
+
+        expect(db.getAgentApiKeyById).toHaveBeenCalledWith('key-1', 'user-123');
+        expect(db.saveConvo).toHaveBeenCalledTimes(1);
+        expect(db.saveMessage).toHaveBeenCalledTimes(2);
+        const [, userMsg] = db.saveMessage.mock.calls[0];
+        const [, reply] = db.saveMessage.mock.calls[1];
+        const metadata = { source: 'agents-api', api: 'responses', apiKeyName: 'power-automate' };
+        expect(userMsg).toEqual(
+          expect.objectContaining({
+            messageId: 'in-1',
+            parentMessageId: NO_PARENT,
+            isCreatedByUser: true,
+            text: 'Hello',
+            metadata,
+          }),
+        );
+        expect(reply).toEqual(
+          expect.objectContaining({
+            messageId: 'resp_mock-123',
+            parentMessageId: 'in-1',
+            isCreatedByUser: false,
+            sender: 'Test Agent',
+            metadata,
+          }),
+        );
+      },
+    );
+
+    it('hangs a continued turn off the last stored message', async () => {
+      process.env.AGENTS_API_PERSIST_ALL = 'true';
+      const api = require('@librechat/api');
+      const db = require('~/models');
+      api.validateResponseRequest.mockReturnValueOnce({
+        request: { ...req.body, previous_response_id: 'previous' },
+      });
+      db.getConvo.mockResolvedValueOnce({ conversationId: 'previous' });
+      db.getMessages.mockResolvedValueOnce([
+        { messageId: 'old-user', isCreatedByUser: true, text: 'first' },
+        { messageId: 'old-reply', isCreatedByUser: false, text: 'answer' },
+      ]);
+      api.convertInputToMessages.mockReturnValueOnce([
+        { role: 'user', content: 'follow-up', messageId: 'in-2' },
+      ]);
+
+      await createResponse(req, res);
+
+      const [, userMsg] = db.saveMessage.mock.calls[0];
+      const [, reply] = db.saveMessage.mock.calls[1];
+      expect(userMsg).toEqual(
+        expect.objectContaining({ messageId: 'in-2', parentMessageId: 'old-reply' }),
+      );
+      expect(reply.parentMessageId).toBe('in-2');
+      expect(userMsg.metadata).toEqual({ source: 'agents-api', api: 'responses' });
+    });
+  });
 
   it('keeps the stored decision when a continued conversation is saved', async () => {
     const api = require('@librechat/api');

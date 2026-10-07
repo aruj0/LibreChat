@@ -467,6 +467,16 @@ jest.mock('~/server/services/Files/Code/process', () => ({
 const mockUpdateBalance = jest.fn().mockResolvedValue({});
 const mockBulkInsertTransactions = jest.fn().mockResolvedValue(undefined);
 
+/* Aralab patch 8: the save itself is covered in apiPersistence.spec.js; here only the
+ * controller's wiring (when, with what) is asserted. */
+const mockPersistApiTurn = jest.fn().mockResolvedValue(null);
+jest.mock('~/server/controllers/agents/apiPersistence', () => ({
+  isPersistAllEnabled: () => process.env.AGENTS_API_PERSIST_ALL === 'true',
+  lastUserText: (...args) =>
+    jest.requireActual('~/server/controllers/agents/apiPersistence').lastUserText(...args),
+  persistApiTurn: (...args) => mockPersistApiTurn(...args),
+}));
+
 jest.mock('~/models', () => ({
   getAgent: jest.fn().mockResolvedValue({ id: 'agent-123', name: 'Test Agent' }),
   getProjectFiles: jest.fn(),
@@ -987,6 +997,115 @@ describe('OpenAIChatCompletionController', () => {
     await params.getEndpointModels('anthropic');
     expect(getEndpointModelsConfig).toHaveBeenCalledTimes(1);
     expect(getEndpointModelsConfig).toHaveBeenCalledWith(req, 'anthropic');
+  });
+
+  describe('Aralab patch 8: saving API calls', () => {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const originalFlag = process.env.AGENTS_API_PERSIST_ALL;
+
+    afterEach(() => {
+      if (originalFlag === undefined) {
+        delete process.env.AGENTS_API_PERSIST_ALL;
+      } else {
+        process.env.AGENTS_API_PERSIST_ALL = originalFlag;
+      }
+    });
+
+    it('does not save, and keeps the nanoid conversation id, when the flag is off', async () => {
+      delete process.env.AGENTS_API_PERSIST_ALL;
+
+      await OpenAIChatCompletionController(req, res);
+
+      expect(res.json).toHaveBeenCalled();
+      expect(mockPersistApiTurn).not.toHaveBeenCalled();
+    });
+
+    it('saves the last user turn after the non-streaming response is sent', async () => {
+      process.env.AGENTS_API_PERSIST_ALL = 'true';
+      const api = require('@librechat/api');
+      api.validateRequest.mockReturnValueOnce({
+        request: {
+          model: 'agent-123',
+          stream: false,
+          messages: [
+            { role: 'system', content: 'Be brief' },
+            { role: 'user', content: 'first question' },
+            { role: 'assistant', content: 'first answer' },
+            { role: 'user', content: 'Qual a gama de temperatura?' },
+          ],
+        },
+      });
+      api.createOpenAIContentAggregator.mockReturnValueOnce({
+        addText: jest.fn(),
+        addReasoning: jest.fn(),
+        getText: jest.fn().mockReturnValue('De -70 °C a +180 °C.'),
+        getReasoning: jest.fn().mockReturnValue(''),
+        toolCalls: new Map(),
+        usage: { promptTokens: 100, completionTokens: 50, reasoningTokens: 0 },
+      });
+
+      await OpenAIChatCompletionController(req, res);
+
+      expect(mockPersistApiTurn).toHaveBeenCalledTimes(1);
+      const [persistReq, params] = mockPersistApiTurn.mock.calls[0];
+      expect(persistReq).toBe(req);
+      expect(params).toMatchObject({
+        api: 'chat.completions',
+        agentId: 'agent-123',
+        agent: expect.objectContaining({ id: 'agent-123', name: 'Test Agent' }),
+        isNewConversation: true,
+        userTexts: ['Qual a gama de temperatura?'],
+        firstParentMessageId: null,
+        responseMessageId: 'chatcmpl-mock-nanoid-123',
+        responseText: 'De -70 °C a +180 °C.',
+        tokenCount: mockCompletionUsage.completion_tokens,
+        finishReason: 'stop',
+      });
+      expect(params.conversationId).toMatch(UUID);
+      expect(res.json.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPersistApiTurn.mock.invocationCallOrder[0],
+      );
+      expect(mockExecution.track).toHaveBeenCalledWith(mockPersistApiTurn.mock.results[0].value);
+    });
+
+    it('saves the streamed text after the stream is closed', async () => {
+      process.env.AGENTS_API_PERSIST_ALL = 'true';
+      const api = require('@librechat/api');
+      api.validateRequest.mockReturnValueOnce({
+        request: {
+          model: 'agent-123',
+          stream: true,
+          messages: [{ role: 'user', content: [{ type: 'text', text: 'Olá' }] }],
+        },
+      });
+      mockProcessStream.mockImplementationOnce(async () => {
+        const { customHandlers: handlers } = api.createRun.mock.calls.at(-1)[0];
+        await handlers.on_message_delta.handle('on_message_delta', {
+          delta: { content: [{ type: 'text', text: 'Bom ' }] },
+        });
+        await handlers.on_message_delta.handle('on_message_delta', {
+          delta: { content: [{ type: 'text', text: 'dia.' }] },
+        });
+      });
+
+      await OpenAIChatCompletionController(req, res);
+
+      expect(mockPersistApiTurn).toHaveBeenCalledTimes(1);
+      const [, params] = mockPersistApiTurn.mock.calls[0];
+      expect(params).toMatchObject({ userTexts: ['Olá'], responseText: 'Bom dia.' });
+      expect(res.end.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPersistApiTurn.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('does not save a run that failed', async () => {
+      process.env.AGENTS_API_PERSIST_ALL = 'true';
+      mockProcessStream.mockRejectedValueOnce(new Error('provider down'));
+
+      await OpenAIChatCompletionController(req, res);
+
+      expect(mockPersistApiTurn).not.toHaveBeenCalled();
+    });
   });
 
   describe('content filtering', () => {

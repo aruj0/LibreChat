@@ -175,6 +175,10 @@ jest.mock('@librechat/agents', () => ({
 }));
 
 jest.mock('@librechat/api', () => ({
+  /** Aralab patch 10b: real, so provider errors reach the client sanitised. */
+  sanitizeUpstreamError: (...args) =>
+    jest.requireActual('@librechat/api').sanitizeUpstreamError(...args),
+  getModelAliasMap: (...args) => jest.requireActual('@librechat/api').getModelAliasMap(...args),
   createFileProvisionRecovery: () =>
     jest.requireActual('@librechat/api').createFileProvisionRecovery(),
   /** The controller names the Langfuse trace after the primary agent so cost

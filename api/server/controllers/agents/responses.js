@@ -52,6 +52,8 @@ const {
   isContentFilterError,
   getSafeErrorMetadata,
   getUserFacingProviderError,
+  sanitizeUpstreamError,
+  getModelAliasMap,
   getAgentErrorMetadata,
   createToolExecuteHandler,
   createOwnedToolEndHandler,
@@ -153,7 +155,12 @@ function handleExecutionError({ error, res, appConfig }) {
     appConfig?.filters,
     appConfig?.messageFilter?.pii,
   );
-  const errorMessage = getUserFacingProviderError(error, protectionEnabled);
+  /* Aralab patch 10b: the original was logged by terminalRunError.log; the client gets
+   * the label instead of the z-ai id and no upstream provider names or URLs. */
+  const errorMessage = sanitizeUpstreamError(
+    getUserFacingProviderError(error, protectionEnabled),
+    getModelAliasMap(appConfig),
+  );
 
   if (res.headersSent) {
     writeDone(res);

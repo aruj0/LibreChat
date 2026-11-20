@@ -9,6 +9,7 @@ const {
   contentFilterBlockResponse,
   getReasoningCapabilities,
   applyRequestReasoningOverride,
+  resolveAliasedModel,
 } = require('@librechat/api');
 const { logger } = require('@librechat/data-schemas');
 const {
@@ -23,6 +24,7 @@ const assistants = require('~/server/services/Endpoints/assistants');
 const { getEndpointsConfig } = require('~/server/services/Config');
 const agents = require('~/server/services/Endpoints/agents');
 const { updateFilesUsage, getBranchLinks } = require('~/models');
+const { getRequestAliasMap } = require('~/server/middleware/aralabModelAlias');
 
 const buildFunction = {
   [EModelEndpoint.agents]: agents.buildOptions,
@@ -61,6 +63,10 @@ function inspectResolvedCurrentUser(req, promptPrefixTemplate) {
 async function buildEndpointOption(req, res, next) {
   restoreAgentTriggerModelSpec(req);
   const { endpoint, endpointType } = req.body;
+  /* Aralab patch 10b: a client holding aliased config/convos sends the label as the model. */
+  if (typeof req.body.model === 'string') {
+    req.body.model = resolveAliasedModel(endpoint, req.body.model, getRequestAliasMap(req));
+  }
   const isAgents =
     isAgentsEndpoint(endpoint) || req.baseUrl.startsWith(EndpointURLs[EModelEndpoint.agents]);
 

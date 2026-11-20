@@ -4,10 +4,13 @@ const { parseConvo } = require('librechat-data-provider');
 const {
   sendEvent,
   handleError,
+  aliasPayload,
   announceErrorTurn,
+  sanitizeUpstreamError,
   sanitizeMessageForTransmit,
 } = require('@librechat/api');
 const { saveMessage, getMessages, getConvo, stampConvoLastResponse } = require('~/models');
+const { getRequestAliasMap } = require('~/server/middleware/aralabModelAlias');
 
 /**
  * Processes an error with provided options, saves the error message and sends a corresponding SSE response
@@ -92,15 +95,23 @@ const sendError = async (req, res, options, callback) => {
       convo = parseConvo(errorMessage);
     }
 
-    return sendEvent(res, {
-      final: true,
-      requestMessage: sanitizeMessageForTransmit(query?.[0] ?? requestMessage),
-      responseMessage: errorMessage,
-      conversation: convo,
-    });
+    /* Aralab patch 10b: the row above was saved with the real ids and error text; only the
+     * copy sent to the client is aliased and sanitised. */
+    return sendEvent(
+      res,
+      aliasPayload(
+        {
+          final: true,
+          requestMessage: sanitizeMessageForTransmit(query?.[0] ?? requestMessage),
+          responseMessage: errorMessage,
+          conversation: convo,
+        },
+        getRequestAliasMap(req),
+      ),
+    );
   }
 
-  handleError(res, errorMessage);
+  handleError(res, aliasPayload(errorMessage, getRequestAliasMap(req)));
 };
 
 /**
@@ -113,7 +124,9 @@ const sendError = async (req, res, options, callback) => {
 const sendResponse = (req, res, data, errorMessage) => {
   if (!res.headersSent) {
     if (errorMessage) {
-      return res.status(500).json({ error: errorMessage });
+      return res
+        .status(500)
+        .json({ error: sanitizeUpstreamError(errorMessage, getRequestAliasMap(req)) });
     }
     return res.json(data);
   }

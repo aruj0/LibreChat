@@ -86,6 +86,7 @@ const {
 const initializeOAuthReconnectManager = require('./services/initializeOAuthReconnectManager');
 const { capabilityContextMiddleware } = require('./middleware/roles/capabilities');
 const createValidateImageRequest = require('./middleware/validateImageRequest');
+const aralabModelAlias = require('./middleware/aralabModelAlias');
 const { initializeGitHubSkillSync } = require('./services/Skills/sync');
 const { startSkillDeletionSweep } = require('./services/Skills/deletion');
 const {
@@ -446,6 +447,10 @@ const startServer = async () => {
 
   /* Per-request capability cache — must be registered before any route that calls hasCapability */
   app.use(capabilityContextMiddleware);
+
+  /* Aralab patch 10b: alias z-ai model ids on every /api response (SSE included) and
+   * resolve labels the client sends back. `/api/admin/*` is exempt inside the middleware. */
+  app.use('/api', aralabModelAlias);
 
   /* Pre-auth tenant context for unauthenticated routes that need tenant scoping.
    * The reverse proxy / auth gateway sets `X-Tenant-Id` header for multi-tenant deployments. */

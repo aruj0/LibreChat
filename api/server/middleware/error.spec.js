@@ -19,6 +19,12 @@ jest.mock('@librechat/api', () => ({
   sanitizeMessageForTransmit: jest.fn((message) => message),
   /** Real, because when an error turn is stamped and what its event carries is under test. */
   announceErrorTurn: jest.requireActual('@librechat/api').announceErrorTurn,
+  /** Aralab patch 10b: real, the outbound copy is aliased and sanitised. */
+  aliasPayload: jest.requireActual('@librechat/api').aliasPayload,
+  aliasSseChunk: jest.requireActual('@librechat/api').aliasSseChunk,
+  getModelAliasMap: jest.requireActual('@librechat/api').getModelAliasMap,
+  resolveAliasedBody: jest.requireActual('@librechat/api').resolveAliasedBody,
+  sanitizeUpstreamError: jest.requireActual('@librechat/api').sanitizeUpstreamError,
 }));
 
 jest.mock('~/models', () => ({
@@ -128,5 +134,33 @@ describe('sendError', () => {
 
     expect(mockSaveMessage).not.toHaveBeenCalled();
     expect(mockStampConvoLastResponse).not.toHaveBeenCalled();
+  });
+
+  it('saves the upstream error unchanged but sends it aliased and sanitised (Aralab patch 10b)', async () => {
+    const upstream =
+      'No endpoints found matching your data policy (Zero data retention) for z-ai/glm-5.3-flash via https://openrouter.ai/api/v1';
+    const req = {
+      ...reqWith(),
+      config: {
+        endpoints: {
+          custom: [
+            {
+              name: 'Aralab GPT',
+              models: { default: ['z-ai/glm-5.3-flash'] },
+              modelDisplayLabel: 'Aralab GPT',
+            },
+          ],
+        },
+      },
+    };
+    await sendError(req, {}, { ...options, text: upstream, model: 'z-ai/glm-5.3-flash' });
+
+    const saved = mockSaveMessage.mock.calls[0][1];
+    expect(saved.text).toBe(upstream);
+    expect(saved.model).toBe('z-ai/glm-5.3-flash');
+    const sent = mockHandleError.mock.calls[0][1];
+    expect(sent.text).not.toMatch(/z-?ai|glm|openrouter|baseten/i);
+    expect(sent.text).toContain('data policy');
+    expect(sent.model).toBe('Aralab GPT');
   });
 });

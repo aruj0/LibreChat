@@ -1064,3 +1064,59 @@ describe('buildEndpointOption - enforced server continuations', () => {
     },
   );
 });
+
+describe('buildEndpointOption - Aralab patch 10b aliased model round-trip', () => {
+  const GLM = 'z-ai/glm-5.3-flash';
+  const aliasConfig = {
+    modelSpecs: null,
+    endpoints: {
+      custom: [
+        { name: 'Aralab GPT', models: { default: [GLM] }, modelDisplayLabel: 'Aralab GPT' },
+        { name: 'Large File Agents', models: { default: [GLM] }, modelDisplayLabel: 'Aralab GPT' },
+        {
+          name: 'Aralab (dev)',
+          models: { default: ['anthropic/claude-opus-5.5'] },
+          modelDisplayLabel: 'Aralab (dev)',
+        },
+      ],
+    },
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetEndpointsConfig.mockResolvedValue({
+      'Aralab GPT': { type: EModelEndpoint.custom },
+      'Large File Agents': { type: EModelEndpoint.custom },
+      'Aralab (dev)': { type: EModelEndpoint.custom },
+    });
+  });
+
+  const run = async (endpoint, model) => {
+    const req = createReq({ endpoint, endpointType: EModelEndpoint.custom, model }, aliasConfig);
+    req.baseUrl = '/api/agents/chat';
+    const next = jest.fn();
+    await buildEndpointOption(req, createRes(), next);
+    expect(next).toHaveBeenCalled();
+    return req;
+  };
+
+  it.each(['Aralab GPT', 'Large File Agents'])(
+    'a POST with endpoint %s and model "Aralab GPT" reaches the client initialiser with the real id',
+    async (endpoint) => {
+      const req = await run(endpoint, 'Aralab GPT');
+      expect(req.body.model).toBe(GLM);
+      /* parsedBody → agents.buildOptions → model_parameters.model → ephemeral agent →
+       * AgentClient.model, which is what the saved response message stores. */
+      const parsedBody = mockAgentBuildOptions.mock.calls[0][2];
+      expect(parsedBody.model).toBe(GLM);
+      expect(req.body.endpointOption.model).toBe(GLM);
+    },
+  );
+
+  it('still accepts the real id (old tabs) and leaves dev ids alone', async () => {
+    expect((await run('Aralab GPT', GLM)).body.model).toBe(GLM);
+    expect((await run('Aralab (dev)', 'anthropic/claude-opus-5.5')).body.model).toBe(
+      'anthropic/claude-opus-5.5',
+    );
+  });
+});

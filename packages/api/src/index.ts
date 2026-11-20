@@ -123,6 +123,7 @@ export * from './web';
 export * from './langfuse';
 /* Aralab patch 10 */
 export * from './aralab/confidential';
+export * from './aralab/modelAlias';
 /* Traces */
 export * from './traces';
 /* Insights */

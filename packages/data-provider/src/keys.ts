@@ -89,6 +89,8 @@ export enum QueryKeys {
   /* Memories */
   memories = 'memories',
   principalSearch = 'principalSearch',
+  /* Aralab patch 9 */
+  groupMemberNames = 'groupMemberNames',
   accessRoles = 'accessRoles',
   resourcePermissions = 'resourcePermissions',
   effectivePermissions = 'effectivePermissions',

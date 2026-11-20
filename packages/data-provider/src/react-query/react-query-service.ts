@@ -447,6 +447,25 @@ export const useSearchPrincipalsQuery = (
   );
 };
 
+/** Aralab patch 9: names of a group's members; fetch only when the list is opened. */
+export const useGroupMemberNamesQuery = (
+  groupId: string | undefined,
+  config?: UseQueryOptions<permissions.TGroupMemberNamesResponse>,
+): QueryObserverResult<permissions.TGroupMemberNamesResponse> => {
+  return useQuery<permissions.TGroupMemberNamesResponse>(
+    [QueryKeys.groupMemberNames, groupId],
+    () => dataService.getGroupMemberNames(groupId as string),
+    {
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      staleTime: 60000,
+      retry: false,
+      ...config,
+      enabled: !!groupId && (config?.enabled ?? true),
+    },
+  );
+};
+
 export const useGetAccessRolesQuery = (
   resourceType: ResourceType,
   config?: UseQueryOptions<q.AccessRolesResponse>,

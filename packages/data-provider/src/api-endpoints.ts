@@ -693,6 +693,10 @@ export const memoryById = (id: string, agentId?: string) =>
   `${memories()}/id/${encodeURIComponent(id)}${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`;
 export const memoryPreferences = () => `${memories()}/preferences`;
 
+/** Aralab patch 9: names of a group's members, gated by People Picker VIEW_GROUPS. */
+export const groupMemberNames = (groupId: string) =>
+  `${BASE_URL}/api/permissions/principals/groups/${encodeURIComponent(groupId)}/members`;
+
 export const searchPrincipals = (params: q.PrincipalSearchParams) => {
   const { q: query, limit, types } = params;
   let url = `${BASE_URL}/api/permissions/search-principals?q=${encodeURIComponent(query)}`;

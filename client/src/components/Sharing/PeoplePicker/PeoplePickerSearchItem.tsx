@@ -19,7 +19,18 @@ const PeoplePickerSearchItem = forwardRef<HTMLDivElement, PeoplePickerSearchItem
     const { name, email, type } = principal;
 
     const displayName = name || localize('com_ui_unknown');
-    const subtitle = email || `${type} (${principal.source || 'local'})`;
+    /* Aralab patch 9: a group's member count (already in the search result) says more than
+     * "group (local)". */
+    const groupSubtitle =
+      type === PrincipalType.GROUP && typeof principal.memberCount === 'number'
+        ? [
+            principal.description?.trim(),
+            localize('com_ui_group_member_count', { 0: principal.memberCount }),
+          ]
+            .filter(Boolean)
+            .join(' · ')
+        : undefined;
+    const subtitle = email || groupSubtitle || `${type} (${principal.source || 'local'})`;
 
     /** Semantic series slots rather than palette hues, so the dot moves with the theme. */
     const getBadgeConfig = () => {

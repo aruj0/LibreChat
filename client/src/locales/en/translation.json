@@ -4068,5 +4068,11 @@
   "com_ui_slack_apps_redirect": "OAuth redirect URL",
   "com_ui_slack_apps_events": "Events URL",
   "com_ui_slack_apps_interactions": "Interactivity URL",
-  "com_ui_slack_apps_empty": "No Slack apps yet. Create an app in Slack, then add its credentials here to connect agents to your workspace."
+  "com_ui_slack_apps_empty": "No Slack apps yet. Create an app in Slack, then add its credentials here to connect agents to your workspace.",
+  "com_ui_group_member_count": "{{0}} members",
+  "com_ui_group_show_members": "Show members",
+  "com_ui_group_hide_members": "Hide members",
+  "com_ui_group_members_empty": "This group has no members yet.",
+  "com_ui_group_members_more": "and {{0}} more without an Aralab GPT account or not listed",
+  "com_ui_group_members_error": "Could not load the members of this group."
 }

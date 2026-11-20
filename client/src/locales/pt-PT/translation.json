@@ -1801,5 +1801,11 @@
   "com_ui_zoom_in": "Ampliar zoom",
   "com_ui_zoom_out": "Reduzir zoom",
   "com_user_message": "Você",
-  "com_ui_feedback_tag_other_issue": "Outro problema"
+  "com_ui_feedback_tag_other_issue": "Outro problema",
+  "com_ui_group_member_count": "{{0}} membros",
+  "com_ui_group_show_members": "Mostrar membros",
+  "com_ui_group_hide_members": "Ocultar membros",
+  "com_ui_group_members_empty": "Este grupo ainda não tem membros.",
+  "com_ui_group_members_more": "e mais {{0}} sem conta no Aralab GPT ou não listados",
+  "com_ui_group_members_error": "Não foi possível carregar os membros deste grupo."
 }

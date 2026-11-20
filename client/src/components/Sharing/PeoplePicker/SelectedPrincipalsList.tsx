@@ -1,12 +1,13 @@
 import React from 'react';
-import { ResourceType } from 'librechat-data-provider';
 import { Users, X, ExternalLink, Info } from 'lucide-react';
+import { PrincipalType, ResourceType } from 'librechat-data-provider';
 import { Button, Checkbox, TooltipAnchor, useMediaQuery } from '@librechat/client';
 import type { TPrincipal, AccessRoleIds } from 'librechat-data-provider';
 import AccessRolesPicker from '~/components/Sharing/AccessRolesPicker';
 import PrincipalAvatar from '~/components/Sharing/PrincipalAvatar';
 import { RESOURCE_CONFIGS } from '~/utils/resources';
 import { principalKey } from '../shareChanges';
+import GroupMembers from './GroupMembers';
 import { useLocalize } from '~/hooks';
 
 interface SelectedPrincipalsListProps {
@@ -70,81 +71,89 @@ export default function SelectedPrincipalsList({
           return (
             <div
               key={`${shareKey}-principalList`}
-              className="border-border-light flex flex-col gap-3 rounded-xl border bg-transparent p-3 sm:flex-row sm:items-center sm:justify-between"
+              className="border-border-light rounded-xl border bg-transparent p-3"
             >
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                <PrincipalAvatar principal={share} size="md" />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <PrincipalAvatar principal={share} size="md" />
 
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{displayName}</div>
-                  <div className="text-text-secondary flex items-center gap-1 text-xs">
-                    <span>{subtitle}</span>
-                    {share.source === 'entra' && (
-                      <>
-                        <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                        <span>{localize('com_ui_azure_ad')}</span>
-                      </>
-                    )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{displayName}</div>
+                    <div className="text-text-secondary flex items-center gap-1 text-xs">
+                      <span>{subtitle}</span>
+                      {share.source === 'entra' && (
+                        <>
+                          <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                          <span>{localize('com_ui_azure_ad')}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
-                {showInsightsAccess && onInsightsAccessChange && (
-                  <div className="me-auto flex items-center gap-2 sm:me-1">
-                    <Checkbox
-                      checked={hasAutomaticInsightsAccess || share.viewInsights === true}
-                      disabled={hasAutomaticInsightsAccess}
-                      onCheckedChange={(checked) =>
-                        onInsightsAccessChange(shareKey, checked === true)
-                      }
-                      aria-label={localize('com_ui_view_agent_insights')}
-                    />
-                    <span className="text-text-secondary text-sm whitespace-nowrap">
-                      {localize('com_ui_view_agent_insights')}
+                <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
+                  {showInsightsAccess && onInsightsAccessChange && (
+                    <div className="me-auto flex items-center gap-2 sm:me-1">
+                      <Checkbox
+                        checked={hasAutomaticInsightsAccess || share.viewInsights === true}
+                        disabled={hasAutomaticInsightsAccess}
+                        onCheckedChange={(checked) =>
+                          onInsightsAccessChange(shareKey, checked === true)
+                        }
+                        aria-label={localize('com_ui_view_agent_insights')}
+                      />
+                      <span className="text-text-secondary text-sm whitespace-nowrap">
+                        {localize('com_ui_view_agent_insights')}
+                      </span>
+                      <TooltipAnchor
+                        description={insightsDescription}
+                        render={
+                          <button
+                            type="button"
+                            aria-label={insightsDescription}
+                            className="text-text-secondary hover:text-text-primary"
+                          >
+                            <Info className="size-4" aria-hidden="true" />
+                          </button>
+                        }
+                      />
+                    </div>
+                  )}
+                  {lockOwner ? (
+                    <span className="text-text-secondary px-3 py-2 text-sm font-medium">
+                      {localize('com_ui_role_owner')}
                     </span>
-                    <TooltipAnchor
-                      description={insightsDescription}
-                      render={
-                        <button
-                          type="button"
-                          aria-label={insightsDescription}
-                          className="text-text-secondary hover:text-text-primary"
-                        >
-                          <Info className="size-4" aria-hidden="true" />
-                        </button>
-                      }
-                    />
-                  </div>
-                )}
-                {lockOwner ? (
-                  <span className="text-text-secondary px-3 py-2 text-sm font-medium">
-                    {localize('com_ui_role_owner')}
-                  </span>
-                ) : (
-                  !!share.accessRoleId &&
-                  !!onRoleChange && (
-                    <AccessRolesPicker
-                      resourceType={resourceType}
-                      selectedRoleId={share.accessRoleId}
-                      onRoleChange={(newRole) => {
-                        onRoleChange?.(shareKey, newRole);
-                      }}
-                      className="min-w-0"
-                    />
-                  )
-                )}
-                {!lockOwner && (
-                  <Button
-                    variant="outline"
-                    onClick={() => onRemoveHandler(shareKey)}
-                    className="hover:border-status-error-border hover:bg-status-error-subtle hover:text-text-destructive h-9 w-9 p-0"
-                    aria-label={localize('com_ui_remove_user', { 0: displayName })}
-                  >
-                    <X className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                )}
+                  ) : (
+                    !!share.accessRoleId &&
+                    !!onRoleChange && (
+                      <AccessRolesPicker
+                        resourceType={resourceType}
+                        selectedRoleId={share.accessRoleId}
+                        onRoleChange={(newRole) => {
+                          onRoleChange?.(shareKey, newRole);
+                        }}
+                        className="min-w-0"
+                      />
+                    )
+                  )}
+                  {!lockOwner && (
+                    <Button
+                      variant="outline"
+                      onClick={() => onRemoveHandler(shareKey)}
+                      className="hover:border-status-error-border hover:bg-status-error-subtle hover:text-text-destructive h-9 w-9 p-0"
+                      aria-label={localize('com_ui_remove_user', { 0: displayName })}
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  )}
+                </div>
               </div>
+              {/* Aralab patch 9: who a group reaches (local groups only: Entra-only results have no id). */}
+              {share.type === PrincipalType.GROUP && !!share.id && (
+                <div className="mt-2 ps-12">
+                  <GroupMembers groupId={share.id} />
+                </div>
+              )}
             </div>
           );
         })}

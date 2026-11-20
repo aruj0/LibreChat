@@ -2167,6 +2167,13 @@ export const createMemory = (data: {
   return request.post(endpoints.memories(), data);
 };
 
+/** Aralab patch 9 */
+export function getGroupMemberNames(
+  groupId: string,
+): Promise<permissions.TGroupMemberNamesResponse> {
+  return request.get(endpoints.groupMemberNames(groupId));
+}
+
 export function searchPrincipals(
   params: q.PrincipalSearchParams,
 ): Promise<q.PrincipalSearchResponse> {

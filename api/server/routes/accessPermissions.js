@@ -6,7 +6,11 @@ const {
   ResourceType,
   PermissionBits,
 } = require('librechat-data-provider');
-const { createAgentAdminPermissionAccess, isAgentPermissionsAdmin } = require('@librechat/api');
+const {
+  createAgentAdminPermissionAccess,
+  isAgentPermissionsAdmin,
+  createGroupMemberNames,
+} = require('@librechat/api');
 const {
   getUserEffectivePermissions,
   getAllEffectivePermissions,
@@ -47,6 +51,20 @@ router.use(uaParser);
  * Search for users and groups to grant permissions
  */
 router.get('/search-principals', checkPeoplePickerAccess, searchPrincipals);
+
+/**
+ * GET /api/permissions/principals/groups/:groupId/members
+ * Aralab patch 9: display names of a group's members, for anyone whose role may search groups
+ * in the people picker (VIEW_GROUPS). Names only; the admin API keeps emails behind read:groups.
+ */
+router.get(
+  '/principals/groups/:groupId/members',
+  createGroupMemberNames({
+    getRoleByName: db.getRoleByName,
+    findGroupById: db.findGroupById,
+    findUsers: db.findUsers,
+  }),
+);
 
 /**
  * GET /api/permissions/{resourceType}/roles

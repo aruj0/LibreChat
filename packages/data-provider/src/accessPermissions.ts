@@ -202,6 +202,17 @@ export type TPrincipalSearchResponse = {
 };
 
 /**
+ * Aralab patch 9: display names of a group's members, for the share dialog.
+ * Names only (no emails); `total` counts every stored member id, including ones with no user.
+ */
+export type TGroupMemberNamesResponse = {
+  members: Array<{ userId: string; name: string }>;
+  total: number;
+  /** True when more members resolved than the server returns (cap: 200). */
+  truncated: boolean;
+};
+
+/**
  * Get resource permissions response schema
  * This matches the enhanced aggregation-based endpoint response format
  */

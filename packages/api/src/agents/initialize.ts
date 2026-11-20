@@ -2133,9 +2133,13 @@ export async function initializeAgent(
     /** Per message, newest message first. Child agents (authorizedRunFiles) must not read
      *  parent history. */
     const messageRows: string[][] = [];
+    /* v0.8.9: a turn sent at the root has no history (its conversation's files belong to
+     * sibling roots: an edited first message or one retried without its files), the same
+     * rule upstream applies to priming, so the header then carries this request's files only. */
     if (
       authorizedRunFiles === undefined &&
       conversationId != null &&
+      parentMessageId !== Constants.NO_PARENT &&
       requestFileOwnerId &&
       db.getMessages
     ) {

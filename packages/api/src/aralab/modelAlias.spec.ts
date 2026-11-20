@@ -255,4 +255,72 @@ describe('aralab model alias (patch 10b)', () => {
     const plain = 'data: {"delta":"hello"}\n\n';
     expect(aliasSseChunk(plain, map)).toBe(plain);
   });
+
+  describe('review fixes', () => {
+    it('aliases a reference shared by two branches (object and array)', () => {
+      const shared = { model: GLM };
+      const out = aliasPayload({ a: shared, b: shared }, map);
+      expect(out).toEqual({ a: { model: 'Aralab GPT' }, b: { model: 'Aralab GPT' } });
+      expect(shared.model).toBe(GLM);
+
+      const list = [GLM, { model: GLM }];
+      const outList = aliasPayload({ x: list, y: { z: list } }, map);
+      expect(outList.x).toEqual(['Aralab GPT', { model: 'Aralab GPT' }]);
+      expect(outList.y.z).toEqual(['Aralab GPT', { model: 'Aralab GPT' }]);
+      expect(list[0]).toBe(GLM);
+    });
+
+    it('still terminates on a true cycle', () => {
+      const node: Record<string, unknown> = { model: GLM };
+      node.self = node;
+      const out = aliasPayload(node, map) as Record<string, unknown>;
+      expect(out.model).toBe('Aralab GPT');
+      expect(out.self).toBe(out);
+      expect(node.model).toBe(GLM);
+    });
+
+    it('passes non-upstream error/message strings through unchanged', () => {
+      const strings = ['Logged on.', 'see https://intranet.aralab.pt/policy for details', '- item'];
+      for (const text of strings) {
+        expect(sanitizeUpstreamError(text, map)).toBe(text);
+        expect(aliasPayload({ message: text, error: text, errorText: text }, map)).toEqual({
+          message: text,
+          error: text,
+          errorText: text,
+        });
+        expect(aliasPayload({ error: true, text }, map).text).toBe(text);
+        expect(aliasPayload({ content: [{ type: 'error', error: text }] }, map).content).toEqual([
+          { type: 'error', error: text },
+        ]);
+      }
+    });
+
+    it('leaves an admin banner payload unchanged', () => {
+      const banner = {
+        bannerId: 'b1',
+        message:
+          '<p>Maintenance on Friday — see <a href="https://intranet.aralab.pt/policy">the policy</a>. Logged on.</p>',
+        displayFrom: '2026-11-20T00:00:00.000Z',
+        type: 'banner',
+        isPublic: true,
+      };
+      expect(aliasPayload(banner, map)).toEqual(banner);
+    });
+
+    it('removes only upstream URLs from upstream error text', () => {
+      const out = sanitizeUpstreamError(
+        `Failed for ${GLM} via https://openrouter.ai/api/v1; see https://intranet.aralab.pt/help`,
+        map,
+      );
+      expect(out).not.toMatch(LEAK);
+      expect(out).toContain('https://intranet.aralab.pt/help');
+      expect(out).toContain('Aralab GPT');
+    });
+
+    it('aliases only whole id-shaped values, not text that starts with one', () => {
+      const title = `${GLM} vs Claude: which is faster?`;
+      expect(aliasPayload({ title }, map).title).toBe(title);
+      expect(aliasPayload({ model: 'z-ai/glm-5.3-flash-20260826' }, map).model).toBe('Aralab GPT');
+    });
+  });
 });

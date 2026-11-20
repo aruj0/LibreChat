@@ -137,6 +137,19 @@ describe('aralabModelAlias middleware (patch 10b)', () => {
     );
   });
 
+  it('leaves the /api/banner payload (admin HTML with links) unchanged', async () => {
+    const banner = {
+      bannerId: 'b1',
+      message:
+        '<p>Maintenance — see <a href="https://intranet.aralab.pt/policy">the policy</a>. Logged on.</p>',
+      type: 'banner',
+      isPublic: true,
+    };
+    const app = buildApp((a) => a.get('/api/banner', (_req, res) => res.json(banner)));
+    const { body } = await request(app).get('/api/banner').expect(200);
+    expect(body).toEqual(banner);
+  });
+
   it('leaves /api/admin/config untouched', async () => {
     const app = buildApp((a) => a.get('/api/admin/config', (_req, res) => res.json(payload())));
     const { body } = await request(app).get('/api/admin/config').expect(200);

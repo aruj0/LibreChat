@@ -19,7 +19,10 @@ export type ModelAliasMap = { toAlias: Map<string, string>; toReal: Map<string, 
 
 /** Used when a `z-ai/` id has no single owning label (or no config is at hand). */
 const FALLBACK_LABEL = 'Aralab GPT';
-const ALIASED_ID = /^z-ai\//i;
+/** A whole value shaped like a GLM id (`z-ai/glm-5.3-flash`, `…-20260826`), not text that starts with one. */
+const ALIASED_ID = /^z-ai\/[\w.:-]+$/i;
+/** Text that may carry an upstream identity; anything else is never sanitised. */
+const UPSTREAM_TRIGGER = /z-ai|openrouter|baseten|glm/i;
 /** Keys whose values are model-generated content: never rewritten. */
 const CONTENT_KEYS = new Set(['text', 'content', 'reasoning', 'think']);
 /** Keys whose string values are server-authored error text. */
@@ -149,19 +152,27 @@ function sanitizeErrorPart(part: unknown, map: ModelAliasMap): unknown {
   return part;
 }
 
-function aliasValue(value: unknown, map: ModelAliasMap, seen: WeakSet<object>): unknown {
+/**
+ * `memo` maps each input object to its aliased copy: a reference shared by two branches is
+ * aliased once and reused, and a true cycle resolves to the copy under construction.
+ */
+function aliasValue(value: unknown, map: ModelAliasMap, memo: WeakMap<object, unknown>): unknown {
   if (typeof value === 'string') {
     return aliasString(value, map);
   }
   if (value == null || typeof value !== 'object') {
     return value;
   }
-  if (seen.has(value)) {
-    return value;
+  if (memo.has(value)) {
+    return memo.get(value);
   }
   if (Array.isArray(value)) {
-    seen.add(value);
-    return value.map((item) => aliasValue(item, map, seen));
+    const outArray: unknown[] = [];
+    memo.set(value, outArray);
+    for (const item of value) {
+      outArray.push(aliasValue(item, map, memo));
+    }
+    return outArray;
   }
   if (!isPlainObject(value)) {
     /* Mongoose documents serialise through toJSON; Date, ObjectId, Buffer stay as they are. */
@@ -169,16 +180,17 @@ function aliasValue(value: unknown, map: ModelAliasMap, seen: WeakSet<object>): 
     if (typeof toJSON === 'function' && !(value instanceof Date)) {
       const json = toJSON.call(value);
       if (json != null && typeof json === 'object' && json !== value) {
-        seen.add(value);
-        return aliasValue(json, map, seen);
+        const aliased = aliasValue(json, map, memo);
+        memo.set(value, aliased);
+        return aliased;
       }
     }
     return value;
   }
 
-  seen.add(value);
   const isErrorMessage = value.error === true;
   const out: Record<string, unknown> = {};
+  memo.set(value, out);
   for (const [key, child] of Object.entries(value)) {
     if (key === 'baseURL') {
       continue;
@@ -204,7 +216,7 @@ function aliasValue(value: unknown, map: ModelAliasMap, seen: WeakSet<object>): 
     if (outKey !== key && Object.prototype.hasOwnProperty.call(out, outKey)) {
       continue;
     }
-    out[outKey] = aliasValue(child, map, seen);
+    out[outKey] = aliasValue(child, map, memo);
   }
   return out;
 }
@@ -216,7 +228,7 @@ function aliasValue(value: unknown, map: ModelAliasMap, seen: WeakSet<object>): 
  * error parts (`{type:'error'}`) inside `content` and `text` on an `error: true` message.
  */
 export function aliasPayload<T>(value: T, map: ModelAliasMap): T {
-  return aliasValue(value, map, new WeakSet()) as T;
+  return aliasValue(value, map, new WeakMap()) as T;
 }
 
 /** The real id for `(endpoint, label)`; any other input (including real ids) unchanged. */
@@ -255,7 +267,22 @@ function resolveBodyValue(
   if (value == null || typeof value !== 'object' || depth > MAX_BODY_DEPTH || seen.has(value)) {
     return;
   }
+  /* `seen` is the current recursion stack (cycle guard), not every visited object. */
   seen.add(value);
+  try {
+    resolveBodyRecord(value, map, endpoint, depth, seen);
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function resolveBodyRecord(
+  value: object,
+  map: ModelAliasMap,
+  endpoint: string | undefined,
+  depth: number,
+  seen: WeakSet<object>,
+): void {
   if (Array.isArray(value)) {
     for (const item of value) {
       resolveBodyValue(item, map, endpoint, depth + 1, seen);
@@ -297,11 +324,12 @@ export function resolveAliasedBody<T>(body: T, map: ModelAliasMap): T {
 
 /**
  * Error text for the client: real ids become the label; the "Providers serving <id>:
- * <list>" clause, upstream URLs and the words OpenRouter, z-ai/z.ai, GLM… and baseten
- * are removed. Log the original before calling this.
+ * <list>" clause, upstream URLs (host matching openrouter/z-ai/glm/baseten) and the words
+ * OpenRouter, z-ai/z.ai, GLM… and baseten are removed. Text that mentions none of
+ * `z-ai|openrouter|baseten|glm` is returned unchanged. Log the original before calling this.
  */
 export function sanitizeUpstreamError(text: string, map: ModelAliasMap): string {
-  if (typeof text !== 'string' || text === '') {
+  if (typeof text !== 'string' || !UPSTREAM_TRIGGER.test(text)) {
     return text;
   }
   let out = text
@@ -311,7 +339,9 @@ export function sanitizeUpstreamError(text: string, map: ModelAliasMap): string 
     out = out.split(id).join(label);
   }
   out = out
-    .replace(/\b(?:https?:\/\/|www\.)[^\s"'<>]+/gi, '')
+    .replace(/\b(?:https?:\/\/|www\.)[^\s"'<>]+/gi, (url) =>
+      UPSTREAM_TRIGGER.test(urlHost(url)) ? '' : url,
+    )
     .replace(/\bopenrouter(?:\.ai)?\b/gi, '')
     .replace(/\bz[-.]?ai\b/gi, '')
     .replace(/\bglm[-\w.]*/gi, '')
@@ -324,6 +354,10 @@ export function sanitizeUpstreamError(text: string, map: ModelAliasMap): string 
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
   return out === '' ? 'An error occurred while processing your request.' : out;
+}
+
+function urlHost(url: string): string {
+  return url.replace(/^(?:https?:\/\/)?/i, '').split(/[/?#]/, 1)[0] ?? '';
 }
 
 /** Cheap pre-check so ordinary token deltas are written without a parse. */

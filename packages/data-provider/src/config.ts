@@ -4059,6 +4059,9 @@ export type TStartupConfig = {
   helpAndFaqURL: string;
   /** Admin panel link, only present for users with admin access */
   adminPanelURL?: string;
+  /** Aralab patch 10c: providers the Agent Builder offers this user (empty = unrestricted).
+   *  A builder-only list; `endpoints.agents.allowedProviders` still governs the runtime. */
+  aralabBuilderProviders?: string[];
   customFooter?: string;
   modelSpecs?: TSpecsConfig;
   projects?: TChatProjectsConfig;

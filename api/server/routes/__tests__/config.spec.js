@@ -35,6 +35,13 @@ jest.mock('@librechat/api', () => ({
   resolveBuildInfo: (...args) => mockResolveBuildInfo(...args),
 }));
 
+const mockGetUserPrincipals = jest.fn();
+const mockFindGroupByQuery = jest.fn();
+jest.mock('~/models', () => ({
+  getUserPrincipals: (...args) => mockGetUserPrincipals(...args),
+  findGroupByQuery: (...args) => mockFindGroupByQuery(...args),
+}));
+
 const request = require('supertest');
 const express = require('express');
 const { SystemCapabilities, configCapability } = require('@librechat/data-schemas');
@@ -1502,5 +1509,62 @@ describe('chat list endpoint filter limit', () => {
       maxEndpointFilters: 50,
       maxEndpointNameLength: 128,
     });
+  });
+});
+
+/** Aralab patch 10c: per-user Agent Builder provider list. */
+describe('GET /api/config — aralabBuilderProviders', () => {
+  const ALLOWED = ['Aralab GPT', 'anthropic', 'google', 'Large File Agents', 'Aralab (dev)'];
+  const appConfig = {
+    ...baseAppConfig,
+    endpoints: { agents: { allowedProviders: ALLOWED } },
+  };
+
+  beforeEach(() => {
+    process.env.ARALAB_BUILDER_PROVIDERS = 'Aralab GPT,anthropic';
+    process.env.ARALAB_BUILDER_FULL_GROUPS = 'LLM_TEST';
+    mockGetAppConfig.mockResolvedValue(appConfig);
+    mockGetUserPrincipals.mockResolvedValue([
+      { principalType: 'user', principalId: 'user123' },
+      { principalType: 'group', principalId: 'group-1' },
+    ]);
+    mockFindGroupByQuery.mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    delete process.env.ARALAB_BUILDER_PROVIDERS;
+    delete process.env.ARALAB_BUILDER_FULL_GROUPS;
+  });
+
+  it('gives a regular user the menu providers', async () => {
+    const response = await request(createApp(mockUser)).get('/api/config');
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.aralabBuilderProviders).toEqual(['Aralab GPT', 'anthropic']);
+    expect(mockFindGroupByQuery).toHaveBeenCalledWith({
+      _id: { $in: ['group-1'] },
+      name: { $in: ['LLM_TEST'] },
+    });
+  });
+
+  it('gives an LLM_TEST member the full allow-list', async () => {
+    mockFindGroupByQuery.mockResolvedValue({ name: 'LLM_TEST' });
+
+    const response = await request(createApp(mockUser)).get('/api/config');
+
+    expect(response.body.aralabBuilderProviders).toEqual(ALLOWED);
+  });
+
+  it('gives an admin the full allow-list without a group lookup', async () => {
+    const response = await request(createApp({ ...mockUser, role: 'ADMIN' })).get('/api/config');
+
+    expect(response.body.aralabBuilderProviders).toEqual(ALLOWED);
+    expect(mockGetUserPrincipals).not.toHaveBeenCalled();
+  });
+
+  it('is not sent before login', async () => {
+    const response = await request(createApp()).get('/api/config');
+
+    expect(response.body).not.toHaveProperty('aralabBuilderProviders');
   });
 });

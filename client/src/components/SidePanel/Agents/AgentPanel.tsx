@@ -509,10 +509,18 @@ export default function AgentPanel() {
       ),
     [endpointsConfig, allowedProviders],
   );
-  const providers = useMemo(
-    () => providerEndpoints.map((provider) => createProviderOption(provider)),
-    [providerEndpoints],
-  );
+  /** Aralab patch 10c: the builder offers only the providers the server lists for this
+   *  user (the chat menu's, unless admin / LLM_TEST). `providerEndpoints` stays the
+   *  runtime list, so an agent already on a hidden provider still loads its models and
+   *  shows its provider; it is just not offered as a choice. Empty = unrestricted. */
+  const builderProviders = startupConfig?.aralabBuilderProviders;
+  const providers = useMemo(() => {
+    const offered =
+      builderProviders != null && builderProviders.length > 0
+        ? providerEndpoints.filter((provider) => builderProviders.includes(provider))
+        : providerEndpoints;
+    return offered.map((provider) => createProviderOption(provider));
+  }, [providerEndpoints, builderProviders]);
   const modelsQuery = useModelCatalog(
     { refetchOnMount: 'always' },
     { eager: true, endpoints: providerEndpoints },

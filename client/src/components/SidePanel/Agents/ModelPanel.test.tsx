@@ -26,6 +26,7 @@ jest.mock('@librechat/client', () => ({
   ControlCombobox: ({
     ariaLabel,
     disabled,
+    displayValue,
     items,
     selectId,
     selectedValue,
@@ -34,6 +35,7 @@ jest.mock('@librechat/client', () => ({
   }: {
     ariaLabel: string;
     disabled?: boolean;
+    displayValue?: string;
     items: Array<{ label: string; value: string }>;
     selectId?: string;
     selectedValue: string;
@@ -45,6 +47,7 @@ jest.mock('@librechat/client', () => ({
         {selectedValue || selectPlaceholder}
       </button>
       <span data-testid={`${ariaLabel}-selected`}>{selectedValue}</span>
+      <span data-testid={`${ariaLabel}-display`}>{displayValue}</span>
       <span data-testid={`${ariaLabel}-placeholder`}>{selectPlaceholder}</span>
       {items.map((item) => (
         <button
@@ -147,6 +150,29 @@ describe('ModelPanel', () => {
     localStorage.clear();
     mockStartupConfig.mockReturnValue({});
     mockWebSearchAllowed.mockReturnValue(true);
+  });
+
+  /** Aralab patch 10c: a hidden current provider is shown, not offered. */
+  it('shows an agent on a hidden provider read-only, with the model label', () => {
+    const { getByTestId, queryByTestId } = render(
+      <TestForm
+        defaultProvider="Large File Agents"
+        defaultModel="Aralab GPT"
+        models={{ 'Large File Agents': ['Aralab GPT'], anthropic: ['claude-sonnet-5-5'] }}
+        modelsReady={true}
+        providers={[
+          { label: 'Aralab GPT', value: 'Aralab GPT' },
+          { label: 'anthropic', value: 'anthropic' },
+        ]}
+      />,
+    );
+
+    expect(getByTestId('com_ui_provider-display')).toHaveTextContent('Large File Agents');
+    expect(getByTestId('com_ui_provider-selected')).toHaveTextContent('Large File Agents');
+    expect(queryByTestId('com_ui_provider-Large File Agents')).toBeNull();
+    expect(getByTestId('com_ui_provider-Aralab GPT')).toBeInTheDocument();
+    expect(getByTestId('com_ui_model-selected')).toHaveTextContent('Aralab GPT');
+    expect(getByTestId('com_ui_model-Aralab GPT')).toHaveTextContent('Aralab GPT');
   });
 
   it('explains a denied native search control without changing saved model parameters', () => {

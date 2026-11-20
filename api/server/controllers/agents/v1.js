@@ -55,6 +55,8 @@ const {
   authorizeAgentRestore,
   applySdkAgentBindingWrite,
   getSdkAgentWriteErrorStatus,
+  resolveBuilderProviders,
+  isBuilderProviderAllowed,
 } = require('@librechat/api');
 const {
   Time,
@@ -750,6 +752,41 @@ const pruneToolResourceFileIdsForAgent = async ({
 };
 
 /**
+ * Aralab patch 10c: refuses a builder write that sets a provider this user is not
+ * offered (`ARALAB_BUILDER_PROVIDERS`; admins and `ARALAB_BUILDER_FULL_GROUPS` members
+ * get the full list). Keeping an agent's current provider is always allowed, so agents
+ * on a hidden provider stay editable. `endpoints.agents.allowedProviders` itself is
+ * untouched and still enforced at runtime.
+ * @param {ServerRequest} req
+ * @param {ServerResponse} res
+ * @param {string | undefined} provider - The provider in the request body.
+ * @param {() => Promise<string | undefined>} [getCurrentProvider] - The stored provider (update only).
+ * @returns {Promise<boolean>} true when a 403 was sent.
+ */
+const rejectUnofferedBuilderProvider = async (req, res, provider, getCurrentProvider) => {
+  if (typeof provider !== 'string' || provider === '') {
+    return false;
+  }
+  const offered = await resolveBuilderProviders({
+    user: req.user,
+    allowed: req.config?.endpoints?.[EModelEndpoint.agents]?.allowedProviders ?? [],
+    getUserPrincipals: db.getUserPrincipals,
+    findGroupByQuery: db.findGroupByQuery,
+  });
+  if (isBuilderProviderAllowed(offered, provider)) {
+    return false;
+  }
+  if (getCurrentProvider != null && (await getCurrentProvider()) === provider) {
+    return false;
+  }
+  logger.warn(
+    `[aralab/builderProviders] Refused provider "${provider}" for user ${req.user?.id} (role ${req.user?.role})`,
+  );
+  res.status(403).json({ error: 'Provider not available' });
+  return true;
+};
+
+/**
  * Creates an Agent.
  * @route POST /Agents
  * @param {ServerRequest} req - The request object.
@@ -766,6 +803,9 @@ const createAgentHandler = async (req, res) => {
      */
     normalizeToolResourceFiles(req.body?.tool_resources);
     const validatedData = agentCreateSchema.parse(req.body);
+    if (await rejectUnofferedBuilderProvider(req, res, validatedData.provider)) {
+      return;
+    }
     const { tools = [], ...agentData } = removeNullishValues(validatedData);
     applySdkAgentBindingWrite(
       agentData,
@@ -1104,6 +1144,16 @@ const updateAgentHandler = async (req, res) => {
     normalizeToolResourceFiles(req.body?.tool_resources);
     const validatedData = agentUpdateSchema.parse(req.body);
     if (!validateAgentCodeEnvironmentAllowlist(req, res, validatedData.code_environment_ids)) {
+      return;
+    }
+    if (
+      await rejectUnofferedBuilderProvider(
+        req,
+        res,
+        validatedData.provider,
+        async () => (await db.getAgent({ id }, {}))?.provider,
+      )
+    ) {
       return;
     }
     // Preserve explicit null for avatar to allow resetting the avatar

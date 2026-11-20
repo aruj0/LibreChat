@@ -41,7 +41,7 @@ const mockUseModelCatalog = jest.fn<
 >(() => mockModelsQuery);
 let mockModelPanelProps: Pick<
   AgentModelPanelProps,
-  'models' | 'modelsError' | 'modelsReady'
+  'models' | 'modelsError' | 'modelsReady' | 'providers'
 > | null = null;
 let mockFormDefaults: Partial<AgentForm> = {};
 let mockAgentConfigStatus: InstructionsPromptStatus | undefined;
@@ -55,7 +55,16 @@ let mockPersonalApprovalModesEnabled = true;
 type AgentConfigFixture = Pick<TAgentsEndpoint, 'allowedProviders'> & {
   channels?: Pick<NonNullable<TAgentsEndpoint['channels']>, 'enabled'>;
 };
-let mockAgentPanelContext = {
+let mockAgentPanelContext: {
+  activePanel: string;
+  agentsConfig: AgentConfigFixture;
+  setActivePanel: jest.Mock;
+  endpointsConfig: Record<string, object>;
+  setCurrentAgentId: jest.Mock;
+  agent_id: string | undefined;
+  revealChat: ((start: () => void) => void) | undefined;
+  startupConfig?: { aralabBuilderProviders?: string[] };
+} = {
   activePanel: 'builder',
   agentsConfig: {
     allowedProviders: [],
@@ -64,8 +73,8 @@ let mockAgentPanelContext = {
   setActivePanel: jest.fn(),
   endpointsConfig: {},
   setCurrentAgentId: jest.fn(),
-  agent_id: 'agent-123' as string | undefined,
-  revealChat: undefined as ((start: () => void) => void) | undefined,
+  agent_id: 'agent-123',
+  revealChat: undefined,
 };
 
 // Mock notification severity enum before other imports
@@ -230,7 +239,9 @@ jest.mock('./AgentSelect', () => ({
 
 jest.mock('./ModelPanel', () => ({
   __esModule: true,
-  default: (props: Pick<AgentModelPanelProps, 'models' | 'modelsError' | 'modelsReady'>) => {
+  default: (
+    props: Pick<AgentModelPanelProps, 'models' | 'modelsError' | 'modelsReady' | 'providers'>,
+  ) => {
     mockModelPanelProps = props;
     return <div>{`Model Panel`}</div>;
   },
@@ -1630,5 +1641,106 @@ describe('AgentPanel - Select Agent', () => {
     const start = mockRevealChat.mock.calls[0][0] as () => void;
     start();
     expect(mockSelectAgent).toHaveBeenCalledWith('agent-123');
+  });
+});
+
+/** Aralab patch 10c: the builder offers the chat menu's providers only. */
+describe('AgentPanel - Aralab builder providers', () => {
+  const ALLOWED = ['Aralab GPT', 'anthropic', 'google', 'Large File Agents', 'Aralab (dev)'];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockShowToast = jest.fn();
+    mockFormDefaults = {};
+    mockHasPermission = true;
+    mockPermissionBits = undefined;
+    mockRolePermissions = {};
+    mockUserRole = 'USER';
+    mockModelPanelProps = null;
+    mockModelsQuery = createModelsQuery({
+      'Aralab GPT': ['Aralab GPT'],
+      anthropic: ['claude-sonnet-5-5'],
+      google: ['gemini-3.8-flash'],
+      'Large File Agents': ['Aralab GPT'],
+      'Aralab (dev)': ['anthropic/claude-sonnet-5.5'],
+    });
+    mockAgentPanelContext = {
+      activePanel: 'model',
+      agentsConfig: { allowedProviders: ALLOWED, channels: undefined },
+      setActivePanel: jest.fn(),
+      endpointsConfig: Object.fromEntries(ALLOWED.map((endpoint) => [endpoint, {}])),
+      setCurrentAgentId: jest.fn(),
+      agent_id: 'agent-123',
+      revealChat: mockRevealChat,
+      startupConfig: { aralabBuilderProviders: ['Aralab GPT', 'anthropic'] },
+    };
+    localStorage.clear();
+  });
+
+  const providerValues = () =>
+    (mockModelPanelProps?.providers ?? []).map((option) =>
+      typeof option === 'string' ? option : option.value,
+    );
+
+  it('lists only the providers the server sent for this user', async () => {
+    const { mockUseGetAgentByIdQuery } = setupMocks();
+    mockAgentQuery(mockUseGetAgentByIdQuery, { provider: 'anthropic', model: 'claude-sonnet-5-5' });
+    mockFormDefaults = { provider: 'anthropic', model: 'claude-sonnet-5-5' };
+
+    render(<AgentPanel />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(mockModelPanelProps).not.toBeNull());
+    expect(providerValues()).toEqual(['Aralab GPT', 'anthropic']);
+  });
+
+  it('keeps an agent on Large File Agents on its provider, with its models, not blank', async () => {
+    const { mockUseGetAgentByIdQuery } = setupMocks();
+    mockAgentQuery(mockUseGetAgentByIdQuery, {
+      provider: 'Large File Agents',
+      model: 'Aralab GPT',
+    });
+    mockFormDefaults = {
+      provider: { label: 'Large File Agents', value: 'Large File Agents' },
+      model: 'Aralab GPT',
+    };
+
+    render(<AgentPanel />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(mockModelPanelProps).not.toBeNull());
+    expect(providerValues()).toEqual(['Aralab GPT', 'anthropic']);
+    expect(capturedFormMethods?.getValues('provider')).toEqual({
+      label: 'Large File Agents',
+      value: 'Large File Agents',
+    });
+    expect(capturedFormMethods?.getValues('model')).toBe('Aralab GPT');
+    expect(mockModelPanelProps?.modelsReady).toBe(true);
+    expect(mockModelPanelProps?.models['Large File Agents']).toEqual(['Aralab GPT']);
+  });
+
+  it('drops a remembered hidden provider when starting a new agent', async () => {
+    const { mockUseGetAgentByIdQuery } = setupMocks();
+    mockAgentQuery(mockUseGetAgentByIdQuery, {});
+    mockAgentPanelContext = { ...mockAgentPanelContext, agent_id: undefined };
+    mockFormDefaults = { id: '', provider: '', model: '' };
+    localStorage.setItem('lastAgentProvider', 'google');
+    localStorage.setItem('lastAgentModel', 'gemini-3.8-flash');
+
+    render(<AgentPanel />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(localStorage.getItem('lastAgentProvider')).toBeNull());
+    expect(capturedFormMethods?.getValues('provider')).not.toEqual(
+      expect.objectContaining({ value: 'google' }),
+    );
+  });
+
+  it('offers every allowed provider when the server sent no list', async () => {
+    const { mockUseGetAgentByIdQuery } = setupMocks();
+    mockAgentQuery(mockUseGetAgentByIdQuery, {});
+    mockAgentPanelContext = { ...mockAgentPanelContext, startupConfig: undefined };
+
+    render(<AgentPanel />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(mockModelPanelProps).not.toBeNull());
+    expect(providerValues()).toEqual(ALLOWED);
   });
 });

@@ -28,6 +28,7 @@ const {
   resolvePullRequestCapabilities,
   resolvePreLoginAppConfig,
   withSafePolicyLinks,
+  resolveBuilderProviders,
 } = require('@librechat/api');
 const {
   DEFAULT_MCP_APP_CSP_LIMITS,
@@ -40,6 +41,7 @@ const { hasCapability, getHeldCapabilities } = require('~/server/middleware/role
 const { getLdapConfig } = require('~/server/services/Config/ldap');
 const { getRumConfig } = require('~/server/services/Config/rum');
 const { getAppConfig } = require('~/server/services/Config/app');
+const db = require('~/models');
 
 const router = express.Router();
 const emailLoginEnabled =
@@ -275,6 +277,15 @@ router.get('/', async function (req, res) {
 
     const endpointsDropParamsMap = getEndpointsDropParamsMap(appConfig?.endpoints);
 
+    /** Aralab patch 10c: the Agent Builder's provider list for this user (the runtime
+     *  `allowedProviders` is unchanged). Lookup failures fall back to the menu list. */
+    const aralabBuilderProviders = await resolveBuilderProviders({
+      user: req.user,
+      allowed: appConfig?.endpoints?.[EModelEndpoint.agents]?.allowedProviders ?? [],
+      getUserPrincipals: db.getUserPrincipals,
+      findGroupByQuery: db.findGroupByQuery,
+    });
+
     const balanceConfig = getBalanceConfig(appConfig);
     const cloudFront = buildCloudFrontStartupConfig();
     const langfuseFanoutEnabled = isLangfuseFanoutEnabled();
@@ -364,6 +375,7 @@ router.get('/', async function (req, res) {
       clientLimits: getClientLimits(appConfig?.config?.clientLimits),
       fileUploadSseEnabled: isEnabled(process.env.FILE_UPLOAD_SSE_ENABLED),
       endpointsDropParamsMap: endpointsDropParamsMap,
+      aralabBuilderProviders,
     };
 
     const webSearch = buildWebSearchConfig(appConfig);

@@ -124,6 +124,7 @@ export * from './langfuse';
 /* Aralab patch 10 */
 export * from './aralab/confidential';
 export * from './aralab/modelAlias';
+export * from './aralab/builderProviders';
 /* Traces */
 export * from './traces';
 /* Insights */

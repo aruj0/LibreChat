@@ -24,21 +24,45 @@ describe('applyConfidentialInstructions', () => {
   /* Stable `instructions`, not `additional_instructions`: with promptCache on (OpenRouter's
    * default, Anthropic) the SDK moves `additional_instructions` out of the system message into a
    * trailing `<system_context>` human message whenever `instructions` is non-empty. */
-  it('appends for listed provider', () => {
-    const agent = { provider: 'Aralab GPT', instructions: '' };
+  it('appends to non-empty stable instructions for a listed provider', () => {
+    const agent = { provider: 'Aralab GPT', instructions: 'Persona.' };
     applyConfidentialInstructions(agent, cfg);
-    expect(agent.instructions).toBe(cfg.text);
+    expect(agent.instructions).toBe('Persona.\n\n' + cfg.text);
   });
 
-  it('appends for listed provider when instructions is undefined or null', () => {
-    const undef: { provider: string; instructions?: string | null } = {
-      provider: 'Large File Agents',
-    };
+  it('falls back to additional_instructions when instructions is empty, undefined or null', () => {
+    /* Stable block stays empty, so persona (dynamic) + text render as one system message. */
+    const undef: {
+      provider: string;
+      instructions?: string | null;
+      additional_instructions?: string | null;
+    } = { provider: 'Large File Agents' };
     applyConfidentialInstructions(undef, cfg);
-    expect(undef.instructions).toBe(cfg.text);
-    const nulled = { provider: 'Large File Agents', instructions: null as string | null };
+    expect(undef.instructions).toBeUndefined();
+    expect(undef.additional_instructions).toBe(cfg.text);
+    const nulled = {
+      provider: 'Large File Agents',
+      instructions: null as string | null,
+      additional_instructions: 'Today is 2026-11-20. You are the Supply Chain agent.',
+    };
     applyConfidentialInstructions(nulled, cfg);
-    expect(nulled.instructions).toBe(cfg.text);
+    expect(nulled.instructions).toBeNull();
+    expect(nulled.additional_instructions).toBe(
+      'Today is 2026-11-20. You are the Supply Chain agent.\n\n' + cfg.text,
+    );
+    const blank = { provider: 'Aralab GPT', instructions: '  ' };
+    applyConfidentialInstructions(blank, cfg);
+    expect(blank.instructions).toBe('  ');
+    expect((blank as { additional_instructions?: string }).additional_instructions).toBe(cfg.text);
+  });
+
+  it('idempotent across both fields', () => {
+    const agent = { provider: 'Aralab GPT', instructions: '', additional_instructions: 'A' };
+    applyConfidentialInstructions(agent, cfg);
+    agent.instructions = 'Late stable text';
+    applyConfidentialInstructions(agent, cfg);
+    expect(agent.instructions).toBe('Late stable text');
+    expect(agent.additional_instructions).toBe('A\n\n' + cfg.text);
   });
 
   it('appends after existing', () => {

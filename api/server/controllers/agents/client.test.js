@@ -9484,6 +9484,33 @@ describe('AgentClient - titleConvo', () => {
       );
     });
 
+    it('opts the memory agent out of Aralab patch 10a so empty instructions keep the memory defaults', async () => {
+      mockCheckAccess.mockResolvedValue(true);
+      mockInitializeAgent.mockResolvedValue({
+        ...mockAgent,
+        provider: EModelEndpoint.openAI,
+        instructions: undefined,
+      });
+      mockCreateMemoryProcessor.mockResolvedValue([undefined, jest.fn()]);
+
+      client = new AgentClient(mockOptions);
+      client.conversationId = 'convo-123';
+      client.responseMessageId = 'response-123';
+
+      await client.useMemory();
+
+      expect(mockInitializeAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ confidentialInstructions: false }),
+        expect.any(Object),
+      );
+      /* memory.ts: `instructions || getDefaultInstructions(...)` sees no override. */
+      expect(mockCreateMemoryProcessor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({ instructions: undefined }),
+        }),
+      );
+    });
+
     it('passes the shared linked-instructions resolver, without recording usage, so a linked memory agent still resolves its instructions', async () => {
       mockCheckAccess.mockResolvedValue(true);
       mockInitializeAgent.mockResolvedValue({

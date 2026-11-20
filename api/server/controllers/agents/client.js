@@ -3436,6 +3436,10 @@ class AgentClient extends BaseClient {
          *  asked for. */
         resolveLinkedInstructions: getLinkedInstructionsResolver(),
         recordLinkedPromptUsage: false,
+        /** Aralab patch 10a: no "Model confidentiality" text for the memory agent — it
+         *  never answers the user, and `createMemoryProcessor` replaces empty instructions
+         *  with the memory defaults, which the text would otherwise displace. */
+        confidentialInstructions: false,
       },
       {
         getProjectFiles: db.getProjectFiles,

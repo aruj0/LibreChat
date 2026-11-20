@@ -7904,11 +7904,11 @@ describe('initializeAgent — Aralab patch 10a confidentiality inheritance', () 
     );
   }
 
-  it('appends the confidentiality text to the stable instructions of a Large File Agents agent', async () => {
+  it('puts the text in additional_instructions for a Large File Agents agent without instructions', async () => {
     const result = await initialize('Large File Agents');
     expect(result.provider).toBe(Providers.OPENAI);
-    expect(result.instructions).toBe(CONFIDENTIAL_TEXT);
-    expect(result.additional_instructions ?? '').not.toContain(CONFIDENTIAL_TEXT);
+    expect(result.instructions ?? '').toBe('');
+    expect(result.additional_instructions).toBe(CONFIDENTIAL_TEXT);
   });
 
   it('appends after the agent instructions for an Aralab GPT agent', async () => {
@@ -7916,10 +7916,38 @@ describe('initializeAgent — Aralab patch 10a confidentiality inheritance', () 
     expect(result.instructions).toBe(`Reply in one short sentence.\n\n${CONFIDENTIAL_TEXT}`);
   });
 
-  it('keeps temporal instructions in the dynamic tail and the text in the stable block', async () => {
-    const result = await initialize('Aralab GPT', 'Today is {{current_date}}.');
-    expect(result.instructions).toBe(CONFIDENTIAL_TEXT);
-    expect(result.additional_instructions).toMatch(/^Today is \d{4}-\d{2}-\d{2}/);
+  it('keeps a temporal-var persona and the text together in the dynamic block', async () => {
+    /* `{{current_datetime}}` moves the resolved persona to additional_instructions; the stable
+     * block must stay empty so the SDK renders persona + text as one system message. */
+    const result = await initialize(
+      'Aralab GPT',
+      'You are the Supply Chain agent. Today is {{current_date}}.',
+    );
+    expect(result.instructions ?? '').toBe('');
+    expect(result.additional_instructions).toMatch(
+      /^You are the Supply Chain agent\. Today is \d{4}-\d{2}-\d{2}[^\n]*\n\n# Model confidentiality\n/,
+    );
+  });
+
+  it('skips the hook when the caller opts out (memory agent)', async () => {
+    const { agent, req, res, loadTools, db } = createMocks({
+      provider: 'Aralab GPT',
+      overrideProvider: Providers.OPENAI,
+    });
+    const result = await initializeAgent(
+      {
+        req,
+        res,
+        agent,
+        loadTools,
+        endpointOption: { endpoint: EModelEndpoint.agents },
+        allowedProviders: new Set(['Aralab GPT']),
+        confidentialInstructions: false,
+      },
+      db,
+    );
+    expect(result.instructions ?? '').toBe('');
+    expect(result.additional_instructions ?? '').not.toContain('Model confidentiality');
   });
 
   it('leaves agents on other providers untouched', async () => {

@@ -1055,6 +1055,12 @@ export interface InitializeAgentParams {
    */
   recordLinkedPromptUsage?: boolean;
   /**
+   * Aralab patch 10a: append the "Model confidentiality" text for listed providers.
+   * Defaults to `true`; the memory agent passes `false` (its empty instructions must fall
+   * back to the memory defaults, and it never answers the user).
+   */
+  confidentialInstructions?: boolean;
+  /**
    * Whether the `run_in_background` capability is enabled for this run. When
    * true, tools the agent opted in via `tool_options[name].run_in_background`
    * (plus the background-native code pair, unless explicitly opted out) get a
@@ -2765,15 +2771,26 @@ export async function initializeAgent(
    * `Large File Agents`) inherit the mounted "Model confidentiality" text. Every agent
    * path — saved, ephemeral spec, subagent, handoff, Agents API — passes here, after
    * the instructions are resolved (linked prompt, special vars, repository block).
-   * It goes into the stable `instructions`: in `additional_instructions` the SDK moves it
-   * to a trailing user-role message whenever prompt caching is on (OpenRouter default).
+   * Non-empty `instructions` take it in the stable block; otherwise (no prompt, or a
+   * temporal-var persona moved above) it joins `additional_instructions`, so persona and
+   * text render as one system message under prompt caching (see `~/aralab/confidential`).
    * Keyed on `provider` (the served endpoint name captured above), not `agent.provider`,
    * which a custom endpoint has already remapped to its client (`openAI`) by now.
+   * The memory agent opts out: `memory.ts` replaces empty instructions with its defaults.
    */
-  const confidentialTarget = { provider, instructions: agent.instructions };
-  applyConfidentialInstructions(confidentialTarget, loadConfidentialConfig());
-  if (confidentialTarget.instructions !== agent.instructions) {
-    agent.instructions = confidentialTarget.instructions ?? undefined;
+  if (params.confidentialInstructions !== false) {
+    const confidentialTarget = {
+      provider,
+      instructions: agent.instructions,
+      additional_instructions: agent.additional_instructions,
+    };
+    applyConfidentialInstructions(confidentialTarget, loadConfidentialConfig());
+    if (confidentialTarget.instructions !== agent.instructions) {
+      agent.instructions = confidentialTarget.instructions;
+    }
+    if (confidentialTarget.additional_instructions !== agent.additional_instructions) {
+      agent.additional_instructions = confidentialTarget.additional_instructions;
+    }
   }
 
   let skillCount = 0;

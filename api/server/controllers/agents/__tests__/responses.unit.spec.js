@@ -2942,8 +2942,13 @@ describe('createResponse controller', () => {
 
   /**
    * Aralab patch 10a on the Agents API Responses route — same contract as the chat
-   * completions test in openai.spec.js. The step from `createRun` to the formatted system
-   * message is covered in packages/api (src/aralab/__tests__/confidential.systemPrompt.test.ts).
+   * completions test in openai.spec.js.
+   *
+   * Scope: `initializeAgent` is mocked here and the test applies `applyConfidentialInstructions`
+   * itself, so this only proves the controller (saved-agent load, `applyContextToAgent`,
+   * `createRun` hand-off) does not strip or relocate the text. The real hook inside
+   * `initializeAgent`, its placement rule and the formatted system message are covered end to end
+   * in packages/api/src/aralab/__tests__/confidential.systemPrompt.test.ts.
    */
   describe('Aralab patch 10a: confidentiality text', () => {
     const CONFIDENTIAL_TEXT = '# Model confidentiality\nThe underlying model is confidential.';

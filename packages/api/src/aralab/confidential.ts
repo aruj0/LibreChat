@@ -8,11 +8,15 @@
  * subagents, handoff agents and the Agents API all inherit it without each
  * agent's prompt having to repeat the section.
  *
- * Why `instructions` and not `additional_instructions`: with prompt caching on (OpenRouter's
- * default params, Anthropic) and non-empty `instructions`, `@librechat/agents` moves
- * `additional_instructions` out of the system message into a trailing `<system_context>` human
- * message (`AgentContext.buildSystemRunnable`). The text is static, so it belongs in the stable,
- * cached system block.
+ * Where it goes (decided per agent, after instructions are resolved):
+ * - non-empty `instructions` (stable block): append there. With prompt caching on (OpenRouter's
+ *   default params, Anthropic) and both blocks non-empty, `@librechat/agents` moves
+ *   `additional_instructions` out of the system message into a trailing user-role
+ *   `<system_context>` message (`AgentContext.buildSystemRunnable`), so the text must not sit in
+ *   the dynamic block next to a stable persona.
+ * - empty `instructions` (no prompt, or a persona with `{{current_date}}`-style vars that
+ *   `initializeAgent` moved to `additional_instructions`): append to `additional_instructions`.
+ *   The stable block stays empty, and the SDK renders persona + text as one system message.
  */
 import { readFileSync } from 'fs';
 import { logger } from '@librechat/data-schemas';
@@ -80,20 +84,33 @@ export function loadConfidentialConfig(
 }
 
 /**
- * Appends `cfg.text` to `agent.instructions` (the stable system prompt) when `agent.provider`
- * is a listed endpoint name (exact match). Idempotent: an agent object that already carries
- * the text — a cached or re-initialized one — is left as is.
+ * Appends `cfg.text` for a listed endpoint name (exact match on `agent.provider`): to the stable
+ * `instructions` when they are non-empty, otherwise to `additional_instructions` (see the module
+ * comment). Idempotent: an agent object whose either field already carries the text — a cached or
+ * re-initialized one — is left as is.
  */
 export function applyConfidentialInstructions(
-  agent: { provider?: string; instructions?: string | null },
+  agent: {
+    provider?: string;
+    instructions?: string | null;
+    additional_instructions?: string | null;
+  },
   cfg: ConfidentialConfig | null,
 ): void {
   if (cfg == null || agent.provider == null || !cfg.providers.has(agent.provider)) {
     return;
   }
-  const existing = agent.instructions ?? '';
-  if (existing.includes(cfg.text)) {
+  if (
+    agent.instructions?.includes(cfg.text) === true ||
+    agent.additional_instructions?.includes(cfg.text) === true
+  ) {
     return;
   }
-  agent.instructions = existing === '' ? cfg.text : `${existing}\n\n${cfg.text}`;
+  const append = (existing: string | null | undefined): string =>
+    existing == null || existing === '' ? cfg.text : `${existing}\n\n${cfg.text}`;
+  if (agent.instructions != null && agent.instructions.trim() !== '') {
+    agent.instructions = append(agent.instructions);
+  } else {
+    agent.additional_instructions = append(agent.additional_instructions);
+  }
 }

@@ -267,6 +267,46 @@ describe('Aralab patch 10a — confidentiality text reaches the system prompt', 
     );
   });
 
+  it.each<CallerShape>(['ui-saved-agent', 'agents-api-chat-completions', 'agents-api-responses'])(
+    '%s: temporal-var persona and text share the single system message',
+    async (shape) => {
+      /* Supply Chain agent shape: `- Current Date & Time: {{current_datetime}}` in its prompt. */
+      const persona =
+        'You are the Supply Chain agent.\n- Current Date & Time: {{current_datetime}}';
+      const prompt = await renderPrompt(
+        await initializeFor(shape, { ...savedAgent('Aralab GPT'), instructions: persona } as Agent),
+      );
+      expect(prompt[0].getType()).toBe('system');
+      const system = textOf(prompt[0].content);
+      expect(system).toContain('You are the Supply Chain agent.');
+      expect(system).toContain('- Current Date & Time: ');
+      expect(system).not.toContain('{{current_datetime}}');
+      expect(system).toContain('# Model confidentiality');
+      expect(system.indexOf('You are the Supply Chain agent.')).toBeLessThan(
+        system.indexOf('# Model confidentiality'),
+      );
+      for (const message of prompt.slice(1)) {
+        expect(message.getType()).not.toBe('system');
+        expect(textOf(message.content)).not.toContain('Supply Chain agent');
+        expect(textOf(message.content)).not.toContain('# Model confidentiality');
+      }
+    },
+  );
+
+  it('agent without instructions: the text is the system message', async () => {
+    const prompt = await renderPrompt(
+      await initializeFor('agents-api-chat-completions', {
+        ...savedAgent('Aralab GPT'),
+        instructions: '',
+      } as Agent),
+    );
+    expect(prompt[0].getType()).toBe('system');
+    expect(textOf(prompt[0].content)).toContain('# Model confidentiality');
+    for (const message of prompt.slice(1)) {
+      expect(textOf(message.content)).not.toContain('# Model confidentiality');
+    }
+  });
+
   it('agent on another provider: no confidentiality text anywhere in the prompt', async () => {
     mockGetProviderConfig.mockReturnValue({
       overrideProvider: Providers.ANTHROPIC,

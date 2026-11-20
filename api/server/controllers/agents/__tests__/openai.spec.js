@@ -1113,12 +1113,15 @@ describe('OpenAIChatCompletionController', () => {
   });
 
   /**
-   * Aralab patch 10a on the Agents API chat completions route. The saved agent reaches
-   * `initializeAgent` under its served endpoint name, the real patch-10a hook (from the built
-   * package) puts the text into the stable instructions, and the real `applyContextToAgent`
-   * plus the controller hand it to `createRun` intact. The step from `createRun` to the
-   * formatted system message is covered in packages/api
-   * (src/aralab/__tests__/confidential.systemPrompt.test.ts).
+   * Aralab patch 10a on the Agents API chat completions route: the saved agent reaches
+   * `initializeAgent` under its served endpoint name, and text in the stable instructions
+   * survives the real `applyContextToAgent` and the `createRun` hand-off.
+   *
+   * Scope: `initializeAgent` is mocked here and the test applies `applyConfidentialInstructions`
+   * itself, so this only proves the controller (saved-agent load, `applyContextToAgent`,
+   * `createRun` hand-off) does not strip or relocate the text. The real hook inside
+   * `initializeAgent`, its placement rule and the formatted system message are covered end to end
+   * in packages/api/src/aralab/__tests__/confidential.systemPrompt.test.ts.
    */
   describe('Aralab patch 10a: confidentiality text', () => {
     const CONFIDENTIAL_TEXT = '# Model confidentiality\nThe underlying model is confidential.';

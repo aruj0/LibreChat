@@ -38,6 +38,7 @@ const {
   isPersistAllEnabled,
   shouldPersistApiCall,
   contentToText,
+  withApiMetadata,
   lastUserText,
   deriveTitle,
   buildApiMetadata,
@@ -340,5 +341,72 @@ describe('persistApiTurn', () => {
       `[Agents API persist] chat.completions conversation=${CONVO_ID}:`,
       expect.objectContaining({ type: 'Error' }),
     );
+  });
+});
+
+describe('withApiMetadata (Responses API, v0.8.9)', () => {
+  const ON = { AGENTS_API_PERSIST_ALL: 'true' };
+  const req = { user: { id: 'user-1' }, apiKeyId: 'key-1' };
+  const deps = { getAgentApiKeyById: jest.fn().mockResolvedValue({ name: 'power-automate' }) };
+
+  beforeEach(() => deps.getAgentApiKeyById.mockClear());
+
+  it('returns saveMessage untouched when the flag is off', () => {
+    const saveMessage = jest.fn();
+    expect(withApiMetadata(saveMessage, req, 'Agent X', deps, {})).toBe(saveMessage);
+  });
+
+  it('merges tags over upstream metadata, flattens array input and looks the key up once', async () => {
+    const saveMessage = jest.fn().mockResolvedValue({ ok: true });
+    const wrapped = withApiMetadata(saveMessage, req, 'Agent X', deps, ON);
+
+    await wrapped(
+      'ctx',
+      {
+        isCreatedByUser: true,
+        sender: 'User',
+        text: '[{"type":"input_text","text":"Olá"}]',
+        content: [{ type: 'input_text', text: 'Olá' }],
+        metadata: { responseInputRole: 'user' },
+      },
+      { context: 'in' },
+    );
+    await wrapped(
+      'ctx',
+      {
+        isCreatedByUser: false,
+        sender: 'Agent',
+        text: 'Resposta',
+        metadata: { responseReceipt: {} },
+      },
+      { context: 'out' },
+    );
+
+    const [, userMsg, userOpts] = saveMessage.mock.calls[0];
+    const [, reply] = saveMessage.mock.calls[1];
+    const tags = { source: API_SOURCE, api: 'responses', apiKeyName: 'power-automate' };
+    expect(userOpts).toEqual({ context: 'in' });
+    expect(userMsg.text).toBe('Olá');
+    expect(userMsg.sender).toBe('User');
+    expect(userMsg.metadata).toEqual({ responseInputRole: 'user', ...tags });
+    expect(reply.text).toBe('Resposta');
+    expect(reply.sender).toBe('Agent X');
+    expect(reply.metadata).toEqual({ responseReceipt: {}, ...tags });
+    expect(deps.getAgentApiKeyById).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the constant sender when the agent has no name', async () => {
+    const saveMessage = jest.fn();
+    await withApiMetadata(
+      saveMessage,
+      req,
+      undefined,
+      deps,
+      ON,
+    )('ctx', {
+      isCreatedByUser: false,
+      sender: 'Agent',
+    });
+    expect(saveMessage.mock.calls[0][1].sender).toBe('Agent');
   });
 });

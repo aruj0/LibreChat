@@ -251,8 +251,15 @@ function withApiMetadata(saveMessage, req, agentName, deps = db, env = process.e
   return async (context, message, options) => {
     metadataPromise ??= buildApiMetadata(req, 'responses', deps);
     const apiMetadata = await metadataPromise;
+    /* Upstream stores array input as JSON in `text`; keep it readable for Metabase, as the
+     * pre-v0.8.9 patch did (`content` keeps the structured parts). */
+    const plainText =
+      message?.isCreatedByUser === true && Array.isArray(message?.content)
+        ? contentToText(message.content)
+        : '';
     const tagged = {
       ...message,
+      ...(plainText !== '' && { text: plainText }),
       metadata: { ...(message?.metadata ?? {}), ...apiMetadata },
       ...(message?.isCreatedByUser !== true &&
         message?.sender === 'Agent' &&

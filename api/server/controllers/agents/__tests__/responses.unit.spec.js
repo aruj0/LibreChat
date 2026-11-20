@@ -856,7 +856,8 @@ describe('createResponse controller', () => {
             parentMessageId: NO_PARENT,
             isCreatedByUser: true,
             text: 'Hello',
-            metadata,
+            /* v0.8.9: upstream's own input marker is kept alongside ours. */
+            metadata: { ...metadata, responseInputRole: 'user' },
           }),
         );
         expect(reply).toEqual(
@@ -865,7 +866,8 @@ describe('createResponse controller', () => {
             parentMessageId: 'in-1',
             isCreatedByUser: false,
             sender: 'Test Agent',
-            metadata,
+            /* v0.8.9 also stores its own responseReceipt in metadata. */
+            metadata: expect.objectContaining(metadata),
           }),
         );
       },
@@ -895,7 +897,11 @@ describe('createResponse controller', () => {
         expect.objectContaining({ messageId: 'in-2', parentMessageId: 'old-reply' }),
       );
       expect(reply.parentMessageId).toBe('in-2');
-      expect(userMsg.metadata).toEqual({ source: 'agents-api', api: 'responses' });
+      expect(userMsg.metadata).toEqual({
+        source: 'agents-api',
+        api: 'responses',
+        responseInputRole: 'user',
+      });
     });
   });
 

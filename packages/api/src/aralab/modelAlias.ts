@@ -12,6 +12,7 @@
  * `reasoning`, `think`) is never rewritten; only server-authored error text is
  * sanitised.
  */
+import { encodeEphemeralAgentId, parseEphemeralAgentId } from 'librechat-data-provider';
 import type { AppConfig } from '@librechat/data-schemas';
 
 /** `toAlias`: real id → label. `toReal`: `${endpoint}::${label}` → real id. */
@@ -29,6 +30,18 @@ const CONTENT_KEYS = new Set(['text', 'content', 'reasoning', 'think']);
 const ERROR_KEYS = new Set(['error', 'errorText', 'errorMessage', 'message']);
 const OPENROUTER_URL = /^\s*(?:https?:)?\/\/(?:[^/?#\s]*\.)?openrouter\.ai(?:[:/?#]|\s*$)/i;
 const MAX_BODY_DEPTH = 6;
+/** A bare upstream gateway name as a value (`provider`, `defaultParamsEndpoint`, …). */
+const OPENROUTER_VALUE = /^\s*openrouter\s*$/i;
+/**
+ * What a bare `openrouter` value becomes. These endpoints are `type: custom`, and `custom` is
+ * the schema default of `customParams.defaultParamsEndpoint`: the client resolves the same
+ * OpenAI-compatible parameter set (minus OpenRouter's prompt-cache toggles) and the same
+ * reasoning control. `contextUsage.provider` and `accounting.calls[].provider` are not read by
+ * the client. The server never reads these values back from a request.
+ */
+const NEUTRAL_PROVIDER = 'custom';
+/** Request keys that may carry an ephemeral agent id (`<endpoint>__<model>___<sender>`). */
+const AGENT_ID_KEYS = new Set(['agent_id', 'agentId']);
 
 type CustomEndpointLike = {
   name?: unknown;
@@ -125,12 +138,39 @@ function isAliasedId(value: string, map: ModelAliasMap): boolean {
   return map.toAlias.has(value) || ALIASED_ID.test(value);
 }
 
-function aliasString(value: string, map: ModelAliasMap): string {
+/**
+ * An ephemeral agent id whose model segment is a GLM id, with that segment aliased:
+ * `Aralab GPT__z-ai/glm-5.3-flash___Aralab GPT` → `Aralab GPT__Aralab GPT___Aralab GPT`.
+ */
+function aliasEphemeralId(value: string, map: ModelAliasMap): string | undefined {
+  if (!value.includes('__')) {
+    return undefined;
+  }
+  const parsed = parseEphemeralAgentId(value);
+  if (parsed == null || !isAliasedId(parsed.model, map)) {
+    return undefined;
+  }
+  return encodeEphemeralAgentId({ ...parsed, model: labelFor(parsed.model, map) });
+}
+
+/** A value or key that names a GLM model: a bare id or an ephemeral agent id carrying one. */
+function aliasIdToken(value: string, map: ModelAliasMap): string | undefined {
   if (isAliasedId(value, map)) {
     return labelFor(value, map);
   }
+  return aliasEphemeralId(value, map);
+}
+
+function aliasString(value: string, map: ModelAliasMap): string {
+  const token = aliasIdToken(value, map);
+  if (token != null) {
+    return token;
+  }
   if (OPENROUTER_URL.test(value)) {
     return '';
+  }
+  if (OPENROUTER_VALUE.test(value)) {
+    return NEUTRAL_PROVIDER;
   }
   return value;
 }
@@ -212,7 +252,7 @@ function aliasValue(value: unknown, map: ModelAliasMap, memo: WeakMap<object, un
       out[key] = sanitizeUpstreamError(child, map);
       continue;
     }
-    const outKey = isAliasedId(key, map) ? labelFor(key, map) : key;
+    const outKey = aliasIdToken(key, map) ?? key;
     if (outKey !== key && Object.prototype.hasOwnProperty.call(out, outKey)) {
       continue;
     }
@@ -237,6 +277,24 @@ export function resolveAliasedModel(endpoint: string, model: string, map: ModelA
     return model;
   }
   return map.toReal.get(`${endpoint}::${model}`) ?? model;
+}
+
+/**
+ * Inbound counterpart of the composite alias: an ephemeral agent id whose model segment is a
+ * label owned by its endpoint segment gets the real id back
+ * (`Aralab GPT__Aralab GPT___Aralab GPT` → `Aralab GPT__z-ai/glm-5.3-flash___Aralab GPT`).
+ * Real ids, saved agent ids and other composites are returned unchanged.
+ */
+export function resolveAliasedEphemeralId(agentId: string, map: ModelAliasMap): string {
+  if (typeof agentId !== 'string' || !agentId.includes('__')) {
+    return agentId;
+  }
+  const parsed = parseEphemeralAgentId(agentId);
+  if (parsed == null) {
+    return agentId;
+  }
+  const real = map.toReal.get(`${parsed.endpoint}::${parsed.model}`);
+  return real == null ? agentId : encodeEphemeralAgentId({ ...parsed, model: real });
 }
 
 /** A label the client sent without (or with a non-owning) endpoint: resolve it only if unambiguous. */
@@ -303,6 +361,8 @@ function resolveBodyRecord(
     const child = record[key];
     if (key === 'model' && typeof child === 'string') {
       record[key] = resolveLabel(scope, child, map);
+    } else if (AGENT_ID_KEYS.has(key) && typeof child === 'string') {
+      record[key] = resolveAliasedEphemeralId(child, map);
     } else if (child != null && typeof child === 'object') {
       resolveBodyValue(child, map, scope, depth + 1, seen);
     }

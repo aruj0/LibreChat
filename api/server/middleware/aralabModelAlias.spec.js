@@ -215,6 +215,63 @@ describe('aralabModelAlias middleware (patch 10b)', () => {
     expect(text).toContain('No allowed providers are available');
   });
 
+  it('aliases composite agent ids and neutralises openrouter provider values in SSE frames (R16)', async () => {
+    const composite = 'Aralab GPT__z-ai/glm-5.3-flash___Aralab GPT';
+    const app = buildApp((a) => {
+      a.get('/api/agents/chat/stream/3', (_req, res) => {
+        sse(res);
+        res.write(
+          `event: message\ndata: ${JSON.stringify({
+            event: 'on_context_usage',
+            data: { agentId: composite, provider: 'openrouter', model: GLM },
+          })}\n\n`,
+        );
+        res.write(
+          `event: message\ndata: ${JSON.stringify({ final: true, conversation: { agent_id: composite } })}\n\n`,
+        );
+        res.end();
+      });
+      a.post('/api/agents/v1/responses', (_req, res) => {
+        sse(res);
+        res.write('event: response.completed\n');
+        res.write(
+          `data: ${JSON.stringify({
+            type: 'response.completed',
+            response: { accounting: { calls: [{ provider: 'openrouter', model: GLM }] } },
+          })}\n\n`,
+        );
+        res.end();
+      });
+    });
+    const chat = await request(app).get('/api/agents/chat/stream/3').expect(200);
+    expect(chat.text).not.toMatch(LEAK);
+    const [delta, final] = [...chat.text.matchAll(/^data: (.*)$/gm)].map((m) => JSON.parse(m[1]));
+    expect(delta.data).toEqual({
+      agentId: 'Aralab GPT__Aralab GPT___Aralab GPT',
+      provider: 'custom',
+      model: 'Aralab GPT',
+    });
+    expect(final.conversation.agent_id).toBe('Aralab GPT__Aralab GPT___Aralab GPT');
+    const responses = await request(app).post('/api/agents/v1/responses').expect(200);
+    expect(responses.text).not.toMatch(LEAK);
+    expect(responses.text).toContain('"provider":"custom"');
+  });
+
+  it('resolves an aliased composite agent_id in request bodies (R16)', async () => {
+    let seen;
+    const app = buildApp((a) =>
+      a.post('/api/agents/chat/Aralab%20GPT', (req, res) => {
+        seen = { ...req.body };
+        res.json({ ok: true });
+      }),
+    );
+    await request(app)
+      .post('/api/agents/chat/Aralab%20GPT')
+      .send({ endpoint: 'Aralab GPT', agent_id: 'Aralab GPT__Aralab GPT___Aralab GPT' })
+      .expect(200);
+    expect(seen.agent_id).toBe('Aralab GPT__z-ai/glm-5.3-flash___Aralab GPT');
+  });
+
   it('writes an Agents API stream chunk aliased', async () => {
     const app = buildApp((a) =>
       a.post('/api/agents/v1/chat/completions', (_req, res) => {

@@ -1,3 +1,4 @@
+import { parseEphemeralAgentId } from 'librechat-data-provider';
 import type { AppConfig } from '@librechat/data-schemas';
 import {
   aliasJsonText,
@@ -5,6 +6,7 @@ import {
   aliasPayload,
   buildModelAliasMap,
   resolveAliasedBody,
+  resolveAliasedEphemeralId,
   resolveAliasedModel,
   sanitizeUpstreamError,
 } from './modelAlias';
@@ -321,6 +323,198 @@ describe('aralab model alias (patch 10b)', () => {
       const title = `${GLM} vs Claude: which is faster?`;
       expect(aliasPayload({ title }, map).title).toBe(title);
       expect(aliasPayload({ model: 'z-ai/glm-5.3-flash-20260826' }, map).model).toBe('Aralab GPT');
+    });
+  });
+
+  describe('leak probe shapes (R16)', () => {
+    const COMPOSITE = 'Aralab GPT__z-ai/glm-5.3-flash___Aralab GPT';
+    const COMPOSITE_ALIASED = 'Aralab GPT__Aralab GPT___Aralab GPT';
+    const NON_GLM = 'anthropic__claude-opus-5-5___Claude';
+    const CONTENT_KEYS = new Set(['text', 'content', 'reasoning', 'think']);
+
+    /** Like the probe's findLeaks: every key and string value outside content keys. */
+    const findLeaks = (value: unknown, path = '$'): string[] => {
+      if (typeof value === 'string') {
+        return LEAK.test(value) ? [`${path}=${value}`] : [];
+      }
+      if (value == null || typeof value !== 'object') {
+        return [];
+      }
+      if (Array.isArray(value)) {
+        return value.flatMap((item, index) => findLeaks(item, `${path}[${index}]`));
+      }
+      return Object.entries(value).flatMap(([key, child]) => {
+        if (CONTENT_KEYS.has(key)) {
+          return [];
+        }
+        const keyLeak = LEAK.test(key) ? [`${path} key ${key}`] : [];
+        return [...keyLeak, ...findLeaks(child, `${path}.${key}`)];
+      });
+    };
+
+    it('aliases composite ephemeral agent ids at every probed path', () => {
+      const convos = aliasPayload({ conversations: [{ agent_id: COMPOSITE }] }, map);
+      expect(convos.conversations[0].agent_id).toBe(COMPOSITE_ALIASED);
+      expect(aliasPayload({ agent_id: COMPOSITE }, map).agent_id).toBe(COMPOSITE_ALIASED);
+      const messages = aliasPayload([{ metadata: { contextUsage: { agentId: COMPOSITE } } }], map);
+      expect(messages[0].metadata.contextUsage.agentId).toBe(COMPOSITE_ALIASED);
+      const sse = aliasPayload(
+        { data: { agentId: COMPOSITE }, conversation: { agent_id: COMPOSITE } },
+        map,
+      );
+      expect(sse.data.agentId).toBe(COMPOSITE_ALIASED);
+      expect(sse.conversation.agent_id).toBe(COMPOSITE_ALIASED);
+      expect(aliasPayload({ agents: { [COMPOSITE]: 1 } }, map).agents).toEqual({
+        [COMPOSITE_ALIASED]: 1,
+      });
+      expect(aliasPayload({ agentId: `${COMPOSITE}____1` }, map).agentId).toBe(
+        `${COMPOSITE_ALIASED}____1`,
+      );
+    });
+
+    it('leaves a non-GLM composite unchanged both ways', () => {
+      expect(aliasPayload({ agent_id: NON_GLM }, map).agent_id).toBe(NON_GLM);
+      expect(resolveAliasedEphemeralId(NON_GLM, map)).toBe(NON_GLM);
+      expect(resolveAliasedEphemeralId('agent_abc123', map)).toBe('agent_abc123');
+    });
+
+    it('resolves an aliased composite back to the real model id', () => {
+      const resolved = resolveAliasedEphemeralId(COMPOSITE_ALIASED, map);
+      expect(resolved).toBe(COMPOSITE);
+      expect(parseEphemeralAgentId(resolved)?.model).toBe(GLM);
+      /* real ids keep working */
+      expect(resolveAliasedEphemeralId(COMPOSITE, map)).toBe(COMPOSITE);
+      const body = {
+        agent_id: COMPOSITE_ALIASED,
+        addedConvo: { agentId: 'Large File Agents__Aralab GPT___Aralab GPT' },
+        text: COMPOSITE_ALIASED,
+      };
+      resolveAliasedBody(body, map);
+      expect(body.agent_id).toBe(COMPOSITE);
+      expect(body.addedConvo.agentId).toBe('Large File Agents__z-ai/glm-5.3-flash___Aralab GPT');
+      expect(body.text).toBe(COMPOSITE_ALIASED);
+    });
+
+    it('neutralises contextUsage.provider "openrouter" (messages and SSE)', () => {
+      const messages = aliasPayload(
+        [{ metadata: { contextUsage: { provider: 'openrouter', model: GLM } } }],
+        map,
+      );
+      expect(messages[0].metadata.contextUsage).toEqual({
+        provider: 'custom',
+        model: 'Aralab GPT',
+      });
+      const sse = aliasPayload({ data: { provider: 'openrouter' } }, map);
+      expect(sse.data.provider).toBe('custom');
+    });
+
+    it('neutralises Responses accounting.calls[].provider and aliases .model', () => {
+      const body = aliasPayload(
+        { accounting: { calls: [{ provider: 'openrouter', model: GLM, input_tokens: 10 }] } },
+        map,
+      );
+      expect(body.accounting.calls[0]).toEqual({
+        provider: 'custom',
+        model: 'Aralab GPT',
+        input_tokens: 10,
+      });
+      const event = aliasPayload(
+        {
+          type: 'response.completed',
+          response: { accounting: { calls: [{ provider: 'openrouter', model: GLM }] } },
+        },
+        map,
+      );
+      expect(event.response.accounting.calls[0]).toEqual({
+        provider: 'custom',
+        model: 'Aralab GPT',
+      });
+    });
+
+    it('neutralises customParams.defaultParamsEndpoint "openrouter" on all four endpoints', () => {
+      const names = ['Aralab GPT', 'Large File Agents', 'Aralab (dev)', 'Large File Agents (dev)'];
+      const endpoints = Object.fromEntries(
+        names.map((name) => [
+          name,
+          { type: 'custom', customParams: { defaultParamsEndpoint: 'openrouter' } },
+        ]),
+      );
+      const out = aliasPayload(endpoints, map);
+      for (const name of names) {
+        expect(out[name].customParams.defaultParamsEndpoint).toBe('custom');
+      }
+    });
+
+    it('keeps "openrouter" inside content keys and only replaces exact values', () => {
+      const out = aliasPayload(
+        {
+          text: 'openrouter',
+          content: [{ type: 'text', text: 'openrouter' }],
+          note: 'routed through openrouter later',
+        },
+        map,
+      );
+      expect(out.text).toBe('openrouter');
+      expect(out.content).toEqual([{ type: 'text', text: 'openrouter' }]);
+      expect(out.note).toBe('routed through openrouter later');
+    });
+
+    it('leaves nothing for findLeaks in a probe slice of /api/endpoints and messages', () => {
+      const endpointsSlice = {
+        agents: { type: 'agents' },
+        'Aralab GPT': {
+          type: 'custom',
+          userProvide: false,
+          userProvideURL: false,
+          customParams: { defaultParamsEndpoint: 'openrouter' },
+          modelDisplayLabel: 'Aralab GPT',
+          providerId: 'openrouter',
+        },
+        'Large File Agents': {
+          type: 'custom',
+          customParams: { defaultParamsEndpoint: 'openrouter' },
+          modelDisplayLabel: 'Aralab GPT',
+          providerId: 'openrouter',
+        },
+        'Aralab (dev)': {
+          type: 'custom',
+          customParams: { defaultParamsEndpoint: 'openrouter' },
+          modelDisplayLabel: 'Aralab (dev)',
+          providerId: 'openrouter',
+        },
+        'Large File Agents (dev)': {
+          type: 'custom',
+          customParams: { defaultParamsEndpoint: 'openrouter' },
+          modelDisplayLabel: 'Aralab (dev)',
+          providerId: 'openrouter',
+        },
+      };
+      const messagesSlice = [
+        {
+          messageId: 'm1',
+          conversationId: 'c1',
+          endpoint: 'Aralab GPT',
+          model: GLM,
+          sender: 'Aralab GPT',
+          isCreatedByUser: false,
+          text: '',
+          content: [{ type: 'text', text: 'I am not GLM via OpenRouter' }],
+          metadata: {
+            contextUsage: {
+              agentId: COMPOSITE,
+              provider: 'openrouter',
+              model: GLM,
+              breakdown: { instructions: 10 },
+            },
+          },
+        },
+      ];
+      expect(findLeaks(endpointsSlice)).not.toHaveLength(0);
+      expect(findLeaks(messagesSlice)).not.toHaveLength(0);
+      expect(findLeaks(aliasPayload(endpointsSlice, map))).toEqual([]);
+      expect(findLeaks(aliasPayload(messagesSlice, map))).toEqual([]);
+      /* content untouched */
+      expect(aliasPayload(messagesSlice, map)[0].content).toEqual(messagesSlice[0].content);
     });
   });
 });

@@ -753,7 +753,15 @@ const computeProvisionState = async ({
     /* Aralab patch 5: a unified-UX upload routed to "none" is stored for MCP tools, not
      * for search. Queueing it here embeds it on the agent's first file_search call (a
      * 24.7 MB log became 291 RAG batches). Chooser uploads keep their explicit choice. */
-    const isToolOnlyUpload = file.llmDeliveryPath === 'none' && !cameFromChooser(file);
+    /* v0.8.9 dropped the `cameFromChooser` helper; same predicate inline: only an explicit
+     * `destinationChosen: false` marks a unified-UX upload (records without the marker
+     * predate it and came from the chooser). */
+    /* `searchDestination: true` (v0.8.9) marks a file that was already embedded and lost its
+     * vectors to a cleanup: search is an established destination, so requeue it as upstream does. */
+    const isToolOnlyUpload =
+      file.llmDeliveryPath === 'none' &&
+      file.metadata?.destinationChosen === false &&
+      file.metadata?.searchDestination !== true;
     if (
       needsVectorDB &&
       !isToolOnlyUpload &&

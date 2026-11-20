@@ -153,7 +153,12 @@ export function createSafeUser(
  * List of allowed request body fields that can be used in header placeholders.
  * These are common fields from the request body that are safe to expose in headers.
  */
-export const ALLOWED_BODY_FIELDS = ['conversationId', 'parentMessageId', 'messageId'] as const;
+export const ALLOWED_BODY_FIELDS = [
+  'conversationId',
+  'parentMessageId',
+  'messageId',
+  'fileIds',
+] as const;
 
 /**
  * List of allowed agent fields that can be used in header placeholders. Kept to

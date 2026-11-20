@@ -261,6 +261,14 @@ function createMocks(overrides?: {
   return { agent, req, res, loadTools, db };
 }
 
+/** Aralab patch 7 adds a user-scoped `getMessages` lookup for `fileIds`; thread-walk
+ *  assertions count only the unscoped (thread walk) calls. */
+function threadWalkCalls(getMessages: jest.Mock): unknown[][] {
+  return getMessages.mock.calls.filter(
+    ([filter]) => (filter as { user?: string } | undefined)?.user == null,
+  );
+}
+
 function countNamedWebSearchTools(tools: unknown[] | undefined): number {
   return (
     tools?.filter((tool) => {
@@ -2417,6 +2425,173 @@ describe('initializeAgent — attachment scoping', () => {
     ).resolves.toBeDefined();
   });
 
+  describe('Aralab patch 7: fileIds for {{LIBRECHAT_BODY_FILEIDS}}', () => {
+    const makeFile = (file_id: string) =>
+      ({ file_id, filename: `${file_id}.txt`, type: 'text/plain', bytes: 1024 }) as IMongoFile;
+    type Body = Record<string, unknown>;
+    /** Message rows as the lookup returns them: newest first, `files.file_id` only. */
+    type MessageRow = { files?: Array<{ file_id: string }> };
+    const msg = (...ids: string[]): MessageRow => ({ files: ids.map((file_id) => ({ file_id })) });
+
+    const run = async ({
+      messages = [],
+      convoFileIds = [],
+      requestFiles,
+      resendFiles = true,
+      requestBody = {},
+      isInitialAgent = true,
+      authorizedRunFiles,
+      conversationId = 'c1',
+    }: {
+      messages?: MessageRow[];
+      convoFileIds?: string[] | null;
+      requestFiles?: IMongoFile[];
+      resendFiles?: boolean;
+      requestBody?: Body;
+      isInitialAgent?: boolean;
+      authorizedRunFiles?: TFile[];
+      conversationId?: string;
+    }) => {
+      const { filterFilesByEndpointRuntimeConfig } = jest.requireMock('~/files') as {
+        filterFilesByEndpointRuntimeConfig: jest.Mock;
+      };
+      const { agent, req, res, loadTools, db } = createMocks();
+      (req as unknown as { body: Body }).body = {};
+      mockExtractLibreChatParams.mockReturnValueOnce({
+        resendFiles,
+        maxContextTokens: undefined,
+        modelOptions: { model: agent.model },
+      });
+      (db.getConvoFiles as jest.Mock).mockResolvedValue(convoFileIds);
+      (db.getFiles as jest.Mock).mockResolvedValue([...(requestFiles ?? [])]);
+      const getMessages = jest.fn().mockResolvedValue(messages);
+      filterFilesByEndpointRuntimeConfig.mockImplementation(
+        (_config: ServerRequest['config'], { files }: { files: IMongoFile[] }) => files,
+      );
+      await initializeAgent(
+        {
+          req,
+          res,
+          agent,
+          loadTools,
+          requestFiles,
+          authorizedRunFiles,
+          requestBody,
+          conversationId,
+          endpointOption: { endpoint: EModelEndpoint.agents },
+          allowedProviders: new Set([Providers.OPENAI]),
+          isInitialAgent,
+        },
+        { ...db, getMessages },
+      );
+      /** The patch 7 lookup is the only getMessages call scoped by `user`. */
+      const lookups = getMessages.mock.calls.filter(
+        ([filter]) => (filter as { user?: string }).user != null,
+      );
+      return {
+        requestBody,
+        reqBody: (req as unknown as { body: Body }).body,
+        getMessages,
+        lookups,
+      };
+    };
+
+    it('uses earlier message files although conversations.files is empty (a)', async () => {
+      const { requestBody, reqBody } = await run({
+        convoFileIds: [],
+        messages: [msg('m2-file'), msg('m1-file')],
+        requestFiles: [makeFile('request-1')],
+      });
+      expect(requestBody.fileIds).toBe('m1-file,m2-file,request-1');
+      expect(reqBody.fileIds).toBe('m1-file,m2-file,request-1');
+    });
+
+    it('keeps earlier message files on a turn with no attachment (b)', async () => {
+      const { requestBody } = await run({
+        messages: [{}, msg('m1-a', 'm1-b')],
+        resendFiles: false,
+      });
+      expect(requestBody.fileIds).toBe('m1-a,m1-b');
+    });
+
+    it('new conversation: no messages, one request file (c)', async () => {
+      const { requestBody } = await run({ messages: [], requestFiles: [makeFile('r1')] });
+      expect(requestBody.fileIds).toBe('r1');
+    });
+
+    it("sets 'none' when there are no files anywhere (d)", async () => {
+      const { requestBody, reqBody } = await run({ messages: [{}, {}] });
+      expect(requestBody.fileIds).toBe('none');
+      expect(reqBody.fileIds).toBe('none');
+    });
+
+    it('scopes the message lookup to the requesting user, one query, file ids only (e)', async () => {
+      const { lookups } = await run({ messages: [msg('m1')], convoFileIds: ['convo-only'] });
+      expect(lookups).toHaveLength(1);
+      expect(lookups[0]).toEqual([
+        { conversationId: 'c1', user: 'user-1' },
+        'files.file_id',
+        { sort: { createdAt: -1 } },
+      ]);
+    });
+
+    it('does not use conversations.files as a source', async () => {
+      const { requestBody } = await run({ messages: [], convoFileIds: ['convo-only'] });
+      expect(requestBody.fileIds).toBe('none');
+    });
+
+    it('dedupes ids repeated across messages and the request', async () => {
+      const { requestBody } = await run({
+        messages: [msg('a', 'b'), msg('a')],
+        requestFiles: [makeFile('b'), makeFile('r')],
+      });
+      expect(requestBody.fileIds).toBe('a,b,r');
+    });
+
+    it('caps at the 200 most recent ids and warns (f)', async () => {
+      const { logger } = jest.requireActual('@librechat/data-schemas') as {
+        logger: { warn: (...args: unknown[]) => void };
+      };
+      const warn = jest.spyOn(logger, 'warn');
+      /* f599 is the newest message, f0 the oldest. */
+      const messages = Array.from({ length: 600 }, (_, i) => msg(`f${599 - i}`));
+      const { requestBody } = await run({ messages, requestFiles: [makeFile('req')] });
+      const ids = String(requestBody.fileIds).split(',');
+      expect(ids).toHaveLength(200);
+      expect(new Set(ids).size).toBe(200);
+      expect(ids).toContain('req');
+      expect(ids).toContain('f599');
+      expect(ids).toContain('f401');
+      expect(ids).not.toContain('f400');
+      expect(ids).not.toContain('f0');
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Aralab patch 7'));
+      warn.mockRestore();
+    });
+
+    it('child agents (authorizedRunFiles) never read the parent conversation', async () => {
+      const body: Body = {};
+      const { lookups } = await run({
+        messages: [msg('parent-file')],
+        requestBody: body,
+        isInitialAgent: false,
+        authorizedRunFiles: [{ ...makeFile('auth-1'), user: 'user-1' }] as unknown as TFile[],
+      });
+      expect(lookups).toHaveLength(0);
+      expect(body.fileIds).toBe('auth-1');
+    });
+
+    it('does not let a handoff/added agent overwrite the primary agent value', async () => {
+      const shared: Body = { fileIds: 'm1,request-1' };
+      const { lookups } = await run({
+        messages: [msg('other')],
+        requestBody: shared,
+        isInitialAgent: false,
+      });
+      expect(shared.fileIds).toBe('m1,request-1');
+      expect(lookups).toHaveLength(0);
+    });
+  });
+
   it('does not apply model attachment limits to a tool-only current request file', async () => {
     const { filterFilesByEndpointRuntimeConfig } = jest.requireMock('~/files') as {
       filterFilesByEndpointRuntimeConfig: jest.Mock;
@@ -2568,7 +2743,13 @@ describe('initializeAgent — attachment scoping', () => {
       expect(result.provisionState?.vectorDBFiles ?? []).toEqual([]);
       expect(db.getConvoFiles).not.toHaveBeenCalled();
       if (!hasAnchor) {
-        expect(getMessages).not.toHaveBeenCalled();
+        /* Aralab patch 7 reads `files.file_id` from every message for
+         * {{LIBRECHAT_BODY_FILEIDS}} on each turn; the thread walk (the call this asserts
+         * against) must still not run without an anchor. */
+        const threadWalks = getMessages.mock.calls.filter(
+          ([, select]) => select !== 'files.file_id',
+        );
+        expect(threadWalks).toHaveLength(0);
       }
     },
   );
@@ -4864,8 +5045,8 @@ describe('initializeAgent — code-generated file thread filter (regression)', (
       dbWithThreadCalls,
     );
 
-    expect(getMessages).toHaveBeenCalledTimes(1);
-    const [, selectFields] = getMessages.mock.calls[0];
+    expect(threadWalkCalls(getMessages)).toHaveLength(1);
+    const [, selectFields] = threadWalkCalls(getMessages)[0];
     /* Asserting on a substring instead of exact equality keeps the
      * test resilient to future ordering / new fields, while still
      * catching a regression where `attachments` is dropped. */
@@ -5090,7 +5271,7 @@ describe('initializeAgent — code-generated file thread filter (regression)', (
       { ...db, getMessages, getConvoFiles, getDeferredProvisionFiles },
     );
 
-    expect(getMessages).not.toHaveBeenCalled();
+    expect(threadWalkCalls(getMessages)).toHaveLength(0);
     expect(getDeferredProvisionFiles).toHaveBeenCalledWith(
       ['convo-file-1'],
       expect.anything(),
@@ -5217,7 +5398,7 @@ describe('initializeAgent — code-generated file thread filter (regression)', (
       { ...db, getMessages, getConvoFiles },
     );
 
-    expect(getMessages).not.toHaveBeenCalled();
+    expect(threadWalkCalls(getMessages)).toHaveLength(0);
     expect(mockGetThreadData).not.toHaveBeenCalled();
     /* The conversation read is unconditional and must survive the guard. */
     expect(getConvoFiles).toHaveBeenCalledTimes(1);

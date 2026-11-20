@@ -1145,10 +1145,12 @@ export interface InitializeAgentDbMethods extends EndpointDbMethods {
       hydrateProvisioned?: boolean;
     },
   ) => Promise<unknown[]>;
-  /** Get messages for a conversation (supports select for field projection) */
+  /** Get messages for a conversation (supports select for field projection).
+   *  Aralab patch 7 also passes `user` and a `createdAt` sort (data-schemas getMessages). */
   getMessages?: (
-    filter: { conversationId: string },
+    filter: { conversationId: string; user?: string },
     select?: string,
+    options?: { sort?: Record<string, 1 | -1> },
   ) => Promise<Array<{
     messageId: string;
     parentMessageId?: string;
@@ -2106,6 +2108,75 @@ export async function initializeAgent(
     runtimeToolResources = { ...runtimeToolResources };
     delete runtimeToolResources[EToolResources.execute_code];
   }
+
+  const requestFileSet = new Set((authorizedRunFiles ?? requestFiles).map((file) => file.file_id));
+  /* Aralab patch 7: expose this run's authorised file ids to MCP headers
+   * ({{LIBRECHAT_BODY_FILEIDS}}): the deduped union of `messages.files[].file_id` of the
+   * requesting user's messages in this conversation and this request's files.
+   * `conversations.files` (getConvoFiles) is deliberately NOT the source: for agent chats it
+   * is often empty or partial while the messages carry the attachments, so from turn 2 on the
+   * list would be 'none' and the consumer (fault-finder-mcp) would hide the user's file.
+   * One query on the {conversationId, user, createdAt} index, newest first, projecting
+   * `files.file_id` only. Capped at FILE_IDS_CAP = 200, keeping the most recent: the list
+   * travels in one MCP header, and 200 ids (~37 chars each) is ~7.4 KB, safely under Node's
+   * default 16 KB max header size (500 would be ~18 KB and get the request rejected).
+   * 'none', never '', because a blank BODY field makes
+   * getMissingRuntimeBodyPlaceholderFields refuse the MCP call. MCP tools resolve
+   * placeholders from `requestBody` (the controller's runtime body copy, see
+   * api/server/services/Endpoints/agents/initialize.js `runtimeRequestBody`), not from
+   * req.body, so both are set. Handoff/added agents share that body object and must not
+   * overwrite the primary agent's value. */
+  if (isInitialAgent || requestBody?.fileIds == null) {
+    const FILE_IDS_CAP = 200;
+    const isId = (id: unknown): id is string => typeof id === 'string' && id.length > 0;
+    const requestIds = [...requestFileSet].filter(isId);
+    /** Per message, newest message first. Child agents (authorizedRunFiles) must not read
+     *  parent history. */
+    const messageRows: string[][] = [];
+    if (
+      authorizedRunFiles === undefined &&
+      conversationId != null &&
+      requestFileOwnerId &&
+      db.getMessages
+    ) {
+      const rows =
+        (await db.getMessages({ conversationId, user: requestFileOwnerId }, 'files.file_id', {
+          sort: { createdAt: -1 },
+        })) ?? [];
+      for (const row of rows) {
+        messageRows.push((row.files ?? []).map((file) => file?.file_id).filter(isId));
+      }
+    }
+    const messageIds = messageRows.flat();
+    /* The request's files are the newest, so they survive the cap first. */
+    let kept = [...new Set([...requestIds, ...messageIds])];
+    if (kept.length > FILE_IDS_CAP) {
+      logger.warn(
+        `[initializeAgent] Aralab patch 7: ${kept.length} file ids in conversation ${conversationId}; keeping the ${FILE_IDS_CAP} most recent`,
+      );
+      kept = kept.slice(0, FILE_IDS_CAP);
+    }
+    const keptSet = new Set(kept);
+    const requestIdSet = new Set(requestIds);
+    /* Wire order: message files oldest first, then this request's files. */
+    const ids = [
+      ...new Set(
+        [...messageRows]
+          .reverse()
+          .flat()
+          .filter((id) => keptSet.has(id) && !requestIdSet.has(id)),
+      ),
+      ...requestIds.filter((id) => keptSet.has(id)),
+    ];
+    const fileIds = ids.length > 0 ? ids.join(',') : 'none';
+    if (requestBody) {
+      requestBody.fileIds = fileIds;
+    }
+    if (params.req?.body) {
+      (params.req.body as RequestBody).fileIds = fileIds;
+    }
+  }
+
   let admittedPersistentFiles: TFile[] = [];
   const {
     attachments: primedAttachments,
@@ -2125,7 +2196,7 @@ export async function initializeAgent(
       ? (Promise.resolve(currentFiles) as unknown as Promise<TFile[]>)
       : undefined,
     tool_resources: runtimeToolResources,
-    requestFileSet: new Set((authorizedRunFiles ?? requestFiles).map((file) => file.file_id)),
+    requestFileSet,
     enabledToolResources: toolResourceSet,
     checkSessionsAlive: db.checkSessionsAlive,
     loadCodeApiKey: db.loadCodeApiKey,

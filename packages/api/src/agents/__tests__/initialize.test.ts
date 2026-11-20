@@ -7880,15 +7880,15 @@ describe('initializeAgent — Aralab patch 10a confidentiality inheritance', () 
     jest.clearAllMocks();
   });
 
-  async function initialize(provider: string, existing?: string) {
+  async function initialize(provider: string, instructions?: string) {
     const { agent, req, res, loadTools, db } = createMocks({
       provider,
       /* A custom endpoint is remapped to a built-in client before instructions are
        * resolved; the match must still key on the served endpoint name. */
       overrideProvider: provider === Providers.ANTHROPIC ? provider : Providers.OPENAI,
     });
-    if (existing != null) {
-      agent.additional_instructions = existing;
+    if (instructions != null) {
+      agent.instructions = instructions;
     }
     return initializeAgent(
       {
@@ -7904,19 +7904,27 @@ describe('initializeAgent — Aralab patch 10a confidentiality inheritance', () 
     );
   }
 
-  it('appends the confidentiality text for a Large File Agents agent', async () => {
+  it('appends the confidentiality text to the stable instructions of a Large File Agents agent', async () => {
     const result = await initialize('Large File Agents');
     expect(result.provider).toBe(Providers.OPENAI);
-    expect(result.additional_instructions).toBe(CONFIDENTIAL_TEXT);
+    expect(result.instructions).toBe(CONFIDENTIAL_TEXT);
+    expect(result.additional_instructions ?? '').not.toContain(CONFIDENTIAL_TEXT);
   });
 
-  it('appends after existing dynamic instructions for an Aralab GPT agent', async () => {
-    const result = await initialize('Aralab GPT', 'Agent dynamic guidance.');
-    expect(result.additional_instructions).toBe(`Agent dynamic guidance.\n\n${CONFIDENTIAL_TEXT}`);
+  it('appends after the agent instructions for an Aralab GPT agent', async () => {
+    const result = await initialize('Aralab GPT', 'Reply in one short sentence.');
+    expect(result.instructions).toBe(`Reply in one short sentence.\n\n${CONFIDENTIAL_TEXT}`);
+  });
+
+  it('keeps temporal instructions in the dynamic tail and the text in the stable block', async () => {
+    const result = await initialize('Aralab GPT', 'Today is {{current_date}}.');
+    expect(result.instructions).toBe(CONFIDENTIAL_TEXT);
+    expect(result.additional_instructions).toMatch(/^Today is \d{4}-\d{2}-\d{2}/);
   });
 
   it('leaves agents on other providers untouched', async () => {
-    const result = await initialize(Providers.ANTHROPIC);
+    const result = await initialize(Providers.ANTHROPIC, 'Base.');
+    expect(result.instructions).toBe('Base.');
     expect(result.additional_instructions ?? '').not.toContain(CONFIDENTIAL_TEXT);
   });
 });

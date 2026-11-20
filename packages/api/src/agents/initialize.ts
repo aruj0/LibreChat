@@ -2764,15 +2764,16 @@ export async function initializeAgent(
    * Aralab patch 10a: agents served by a confidential endpoint (`Aralab GPT`,
    * `Large File Agents`) inherit the mounted "Model confidentiality" text. Every agent
    * path — saved, ephemeral spec, subagent, handoff, Agents API — passes here, after
-   * the instructions are resolved and before `additional_instructions` is consumed.
+   * the instructions are resolved (linked prompt, special vars, repository block).
+   * It goes into the stable `instructions`: in `additional_instructions` the SDK moves it
+   * to a trailing user-role message whenever prompt caching is on (OpenRouter default).
    * Keyed on `provider` (the served endpoint name captured above), not `agent.provider`,
    * which a custom endpoint has already remapped to its client (`openAI`) by now.
    */
-  const additionalBeforeConfidential = agent.additional_instructions ?? undefined;
-  const confidentialTarget = { provider, additional_instructions: additionalBeforeConfidential };
+  const confidentialTarget = { provider, instructions: agent.instructions };
   applyConfidentialInstructions(confidentialTarget, loadConfidentialConfig());
-  if (confidentialTarget.additional_instructions !== additionalBeforeConfidential) {
-    agent.additional_instructions = confidentialTarget.additional_instructions;
+  if (confidentialTarget.instructions !== agent.instructions) {
+    agent.instructions = confidentialTarget.instructions ?? undefined;
   }
 
   let skillCount = 0;

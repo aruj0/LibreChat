@@ -3,10 +3,16 @@
  *
  * Every agent whose served endpoint is listed in `ARALAB_CONFIDENTIAL_PROVIDERS`
  * (e.g. `Aralab GPT,Large File Agents`) gets the "Model confidentiality" text from
- * `ARALAB_CONFIDENTIAL_INSTRUCTIONS_FILE` appended to `additional_instructions`.
+ * `ARALAB_CONFIDENTIAL_INSTRUCTIONS_FILE` appended to its stable `instructions`.
  * The call sits in `initializeAgent`, so saved agents, ephemeral spec agents,
  * subagents, handoff agents and the Agents API all inherit it without each
  * agent's prompt having to repeat the section.
+ *
+ * Why `instructions` and not `additional_instructions`: with prompt caching on (OpenRouter's
+ * default params, Anthropic) and non-empty `instructions`, `@librechat/agents` moves
+ * `additional_instructions` out of the system message into a trailing `<system_context>` human
+ * message (`AgentContext.buildSystemRunnable`). The text is static, so it belongs in the stable,
+ * cached system block.
  */
 import { readFileSync } from 'fs';
 import { logger } from '@librechat/data-schemas';
@@ -74,20 +80,20 @@ export function loadConfidentialConfig(
 }
 
 /**
- * Appends `cfg.text` to `agent.additional_instructions` when `agent.provider` is a
- * listed endpoint name (exact match). Idempotent: an agent object that already
- * carries the text — a cached or re-initialized one — is left as is.
+ * Appends `cfg.text` to `agent.instructions` (the stable system prompt) when `agent.provider`
+ * is a listed endpoint name (exact match). Idempotent: an agent object that already carries
+ * the text — a cached or re-initialized one — is left as is.
  */
 export function applyConfidentialInstructions(
-  agent: { provider?: string; additional_instructions?: string },
+  agent: { provider?: string; instructions?: string | null },
   cfg: ConfidentialConfig | null,
 ): void {
   if (cfg == null || agent.provider == null || !cfg.providers.has(agent.provider)) {
     return;
   }
-  const existing = agent.additional_instructions ?? '';
+  const existing = agent.instructions ?? '';
   if (existing.includes(cfg.text)) {
     return;
   }
-  agent.additional_instructions = existing === '' ? cfg.text : `${existing}\n\n${cfg.text}`;
+  agent.instructions = existing === '' ? cfg.text : `${existing}\n\n${cfg.text}`;
 }

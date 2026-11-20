@@ -2940,6 +2940,55 @@ describe('createResponse controller', () => {
     });
   });
 
+  /**
+   * Aralab patch 10a on the Agents API Responses route — same contract as the chat
+   * completions test in openai.spec.js. The step from `createRun` to the formatted system
+   * message is covered in packages/api (src/aralab/__tests__/confidential.systemPrompt.test.ts).
+   */
+  describe('Aralab patch 10a: confidentiality text', () => {
+    const CONFIDENTIAL_TEXT = '# Model confidentiality\nThe underlying model is confidential.';
+
+    it('passes the text to createRun in the system instructions of a saved Aralab GPT agent', async () => {
+      const api = require('@librechat/api');
+      const actual = jest.requireActual('@librechat/api');
+      const db = require('~/models');
+      const cfg = {
+        providers: new Set(['Aralab GPT', 'Large File Agents']),
+        text: CONFIDENTIAL_TEXT,
+      };
+      req.config.endpoints.agents.allowedProviders = ['Aralab GPT'];
+      db.getAgent.mockResolvedValueOnce({
+        id: 'agent-123',
+        name: 'leak-probe',
+        provider: 'Aralab GPT',
+        model: 'z-ai/glm-5.3-flash',
+        instructions: 'Reply in one short sentence.',
+      });
+      api.initializeAgent.mockImplementationOnce(async ({ agent }) => {
+        const config = {
+          ...agent,
+          model_parameters: {},
+          toolRegistry: {},
+          edges: [],
+        };
+        actual.applyConfidentialInstructions(config, cfg);
+        return { ...config, endpoint: agent.provider, provider: 'openrouter' };
+      });
+      mockApplyContextToAgent.mockImplementationOnce(actual.applyContextToAgent);
+
+      await createResponse(req, res);
+
+      expect(api.sendResponsesErrorResponse.mock.calls).toEqual([]);
+      expect(api.initializeAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ agent: expect.objectContaining({ provider: 'Aralab GPT' }) }),
+        expect.anything(),
+      );
+      const { agents } = api.createRun.mock.calls.at(-1)[0];
+      expect(agents[0].instructions).toBe(`Reply in one short sentence.\n\n${CONFIDENTIAL_TEXT}`);
+      expect(agents[0].additional_instructions ?? '').not.toContain('Model confidentiality');
+    });
+  });
+
   describe('agent context parity with UI path', () => {
     it('applies agent-scoped attachment context before createRun', async () => {
       const api = require('@librechat/api');

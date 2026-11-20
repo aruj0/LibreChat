@@ -1336,6 +1336,98 @@ describe('initializeClient — processAgent ACL gate', () => {
       );
     });
   });
+
+  /**
+   * Aralab patch 10a on the UI chat path (`POST /api/agents/chat/agents` with `agent_id`):
+   * a saved agent on the custom OpenRouter endpoint `Aralab GPT`, initialized by the real
+   * `initializeAgent` and the real provider config (OpenRouter defaults to `promptCache: true`),
+   * reaches `AgentClient` with the text in its stable `instructions`. The step from there to the
+   * formatted system message is covered in packages/api
+   * (src/aralab/__tests__/confidential.systemPrompt.test.ts).
+   */
+  describe('Aralab patch 10a: confidentiality text on a saved GLM agent', () => {
+    const actualApi = jest.requireActual('@librechat/api');
+    const fs = jest.requireActual('fs');
+    const os = jest.requireActual('os');
+    const path = jest.requireActual('path');
+    const CONFIDENTIAL_TEXT = '# Model confidentiality\nThe underlying model is confidential.';
+    const savedEnv = {
+      providers: process.env.ARALAB_CONFIDENTIAL_PROVIDERS,
+      file: process.env.ARALAB_CONFIDENTIAL_INSTRUCTIONS_FILE,
+    };
+    let dir;
+
+    beforeAll(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aralab-confidential-ui-'));
+      const file = path.join(dir, 'confidentiality.md');
+      fs.writeFileSync(file, `${CONFIDENTIAL_TEXT}\n`);
+      process.env.ARALAB_CONFIDENTIAL_PROVIDERS = 'Aralab GPT,Large File Agents';
+      process.env.ARALAB_CONFIDENTIAL_INSTRUCTIONS_FILE = file;
+    });
+
+    afterAll(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+      for (const [name, value] of [
+        ['ARALAB_CONFIDENTIAL_PROVIDERS', savedEnv.providers],
+        ['ARALAB_CONFIDENTIAL_INSTRUCTIONS_FILE', savedEnv.file],
+      ]) {
+        if (value === undefined) {
+          delete process.env[name];
+        } else {
+          process.env[name] = value;
+        }
+      }
+    });
+
+    afterEach(() => {
+      mockInitializeAgent.mockReset();
+      loadAgentTools.mockReset();
+    });
+
+    it('hands AgentClient the text in the stable instructions', async () => {
+      const req = makeReq();
+      req.body.agent_id = PRIMARY_ID;
+      req.config = {
+        endpoints: {
+          agents: { allowedProviders: ['Aralab GPT'] },
+          custom: [
+            {
+              name: 'Aralab GPT',
+              apiKey: 'test-openrouter-key',
+              baseURL: 'https://openrouter.ai/api/v1',
+              models: { default: ['z-ai/glm-5.3-flash'] },
+            },
+          ],
+        },
+      };
+      mockInitializeAgent.mockImplementation(actualApi.initializeAgent);
+      loadAgentTools.mockResolvedValue({ tools: [], toolContextMap: {}, toolDefinitions: [] });
+
+      await initializeClient({
+        req,
+        res: {},
+        signal: new AbortController().signal,
+        endpointOption: {
+          ...makeEndpointOption(),
+          agent: Promise.resolve({
+            id: PRIMARY_ID,
+            name: 'CRM Agent',
+            provider: 'Aralab GPT',
+            model: 'z-ai/glm-5.3-flash',
+            instructions: 'Reply in one short sentence.',
+            tools: [],
+          }),
+          model_parameters: { model: 'z-ai/glm-5.3-flash' },
+        },
+      });
+
+      const agent = agentClientArgs.agent;
+      expect(agent.endpoint).toBe('Aralab GPT');
+      expect(agent.model_parameters.promptCache).toBe(true);
+      expect(agent.instructions).toBe(`Reply in one short sentence.\n\n${CONFIDENTIAL_TEXT}`);
+      expect(agent.additional_instructions ?? '').not.toContain('Model confidentiality');
+    });
+  });
 });
 
 describe('initializeClient — subagent loading', () => {

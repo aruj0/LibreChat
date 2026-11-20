@@ -21,51 +21,63 @@ const cfg: ConfidentialConfig = {
 };
 
 describe('applyConfidentialInstructions', () => {
+  /* Stable `instructions`, not `additional_instructions`: with promptCache on (OpenRouter's
+   * default, Anthropic) the SDK moves `additional_instructions` out of the system message into a
+   * trailing `<system_context>` human message whenever `instructions` is non-empty. */
   it('appends for listed provider', () => {
-    const agent = { provider: 'Aralab GPT', additional_instructions: '' };
+    const agent = { provider: 'Aralab GPT', instructions: '' };
     applyConfidentialInstructions(agent, cfg);
-    expect(agent.additional_instructions).toBe(cfg.text);
+    expect(agent.instructions).toBe(cfg.text);
   });
 
-  it('appends for listed provider when additional_instructions is undefined', () => {
-    const agent: { provider: string; additional_instructions?: string } = {
+  it('appends for listed provider when instructions is undefined or null', () => {
+    const undef: { provider: string; instructions?: string | null } = {
       provider: 'Large File Agents',
     };
-    applyConfidentialInstructions(agent, cfg);
-    expect(agent.additional_instructions).toBe(cfg.text);
+    applyConfidentialInstructions(undef, cfg);
+    expect(undef.instructions).toBe(cfg.text);
+    const nulled = { provider: 'Large File Agents', instructions: null as string | null };
+    applyConfidentialInstructions(nulled, cfg);
+    expect(nulled.instructions).toBe(cfg.text);
   });
 
   it('appends after existing', () => {
-    const agent = { provider: 'Aralab GPT', additional_instructions: 'A' };
+    const agent = { provider: 'Aralab GPT', instructions: 'A' };
     applyConfidentialInstructions(agent, cfg);
-    expect(agent.additional_instructions).toBe('A\n\n' + cfg.text);
+    expect(agent.instructions).toBe('A\n\n' + cfg.text);
   });
 
   it('idempotent', () => {
-    const agent = { provider: 'Aralab GPT', additional_instructions: 'A' };
+    const agent = { provider: 'Aralab GPT', instructions: 'A' };
     applyConfidentialInstructions(agent, cfg);
     applyConfidentialInstructions(agent, cfg);
-    const occurrences = agent.additional_instructions.split(cfg.text).length - 1;
+    const occurrences = agent.instructions.split(cfg.text).length - 1;
     expect(occurrences).toBe(1);
-    expect(agent.additional_instructions).toBe('A\n\n' + cfg.text);
+    expect(agent.instructions).toBe('A\n\n' + cfg.text);
+  });
+
+  it('leaves additional_instructions untouched', () => {
+    const agent = { provider: 'Aralab GPT', instructions: 'A', additional_instructions: 'B' };
+    applyConfidentialInstructions(agent, cfg);
+    expect(agent.additional_instructions).toBe('B');
   });
 
   it('skips other providers', () => {
-    const agent = { provider: 'anthropic', additional_instructions: 'A' };
+    const agent = { provider: 'anthropic', instructions: 'A' };
     applyConfidentialInstructions(agent, cfg);
-    expect(agent.additional_instructions).toBe('A');
+    expect(agent.instructions).toBe('A');
   });
 
   it('skips an agent without a provider', () => {
-    const agent: { provider?: string; additional_instructions?: string } = {};
+    const agent: { provider?: string; instructions?: string } = {};
     applyConfidentialInstructions(agent, cfg);
-    expect(agent.additional_instructions).toBeUndefined();
+    expect(agent.instructions).toBeUndefined();
   });
 
   it('null cfg is a no-op', () => {
-    const agent = { provider: 'Aralab GPT', additional_instructions: 'A' };
+    const agent = { provider: 'Aralab GPT', instructions: 'A' };
     applyConfidentialInstructions(agent, null);
-    expect(agent.additional_instructions).toBe('A');
+    expect(agent.instructions).toBe('A');
   });
 });
 
@@ -88,6 +100,16 @@ describe('loadConfidentialConfig', () => {
     };
     expect(loadConfidentialConfig(env)).toBeNull();
     expect(logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('load returns null when the path is a directory (bind mount of a missing host file)', () => {
+    const env = {
+      ARALAB_CONFIDENTIAL_PROVIDERS: 'Aralab GPT',
+      ARALAB_CONFIDENTIAL_INSTRUCTIONS_FILE: dir,
+    };
+    expect(loadConfidentialConfig(env)).toBeNull();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect((logger.warn as jest.Mock).mock.calls[0][0]).toContain('EISDIR');
   });
 
   it('load trims and splits providers', () => {

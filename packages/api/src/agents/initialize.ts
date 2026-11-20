@@ -126,6 +126,7 @@ import {
 import { assertChatProjectInstructions, ChatProjectResourcesChangedError } from '../projects/turn';
 import { extractAgentContent, extractSkillContent } from '../protection/adapters/submissions';
 import { selectCodeFileGenerations, planCodeSnapshotMounts } from '~/files/code/destinations';
+import { applyConfidentialInstructions, loadConfidentialConfig } from '~/aralab/confidential';
 import { createConfiguredContentInspector, inspectContent } from '../protection/runtime';
 import { assertAgentAttachmentLimits, isModelBoundAttachmentFile } from './attachments';
 import { assertModelBoundContent } from '../middleware/modelBoundContent';
@@ -2757,6 +2758,21 @@ export async function initializeAgent(
       artifacts: agent.artifacts as never,
     });
     appendAdditionalInstructions(agent, artifactsPromptResult);
+  }
+
+  /**
+   * Aralab patch 10a: agents served by a confidential endpoint (`Aralab GPT`,
+   * `Large File Agents`) inherit the mounted "Model confidentiality" text. Every agent
+   * path — saved, ephemeral spec, subagent, handoff, Agents API — passes here, after
+   * the instructions are resolved and before `additional_instructions` is consumed.
+   * Keyed on `provider` (the served endpoint name captured above), not `agent.provider`,
+   * which a custom endpoint has already remapped to its client (`openAI`) by now.
+   */
+  const additionalBeforeConfidential = agent.additional_instructions ?? undefined;
+  const confidentialTarget = { provider, additional_instructions: additionalBeforeConfidential };
+  applyConfidentialInstructions(confidentialTarget, loadConfidentialConfig());
+  if (confidentialTarget.additional_instructions !== additionalBeforeConfidential) {
+    agent.additional_instructions = confidentialTarget.additional_instructions;
   }
 
   let skillCount = 0;

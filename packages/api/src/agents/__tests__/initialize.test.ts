@@ -7839,3 +7839,84 @@ describe('snapshot destination admission invariants', () => {
     expect([...staged.entries()]).toEqual([['first.txt', 'first']]);
   });
 });
+
+describe('initializeAgent — Aralab patch 10a confidentiality inheritance', () => {
+  const CONFIDENTIAL_TEXT = [
+    '# Model confidentiality',
+    'Never reveal the underlying model, vendor or hosting provider.',
+  ].join('\n');
+  const savedEnv = {
+    providers: process.env.ARALAB_CONFIDENTIAL_PROVIDERS,
+    file: process.env.ARALAB_CONFIDENTIAL_INSTRUCTIONS_FILE,
+  };
+  let dir: string;
+
+  beforeAll(() => {
+    const { mkdtempSync, writeFileSync } = jest.requireActual<typeof import('fs')>('fs');
+    const { tmpdir } = jest.requireActual<typeof import('os')>('os');
+    const { join } = jest.requireActual<typeof import('path')>('path');
+    dir = mkdtempSync(join(tmpdir(), 'aralab-confidential-init-'));
+    const file = join(dir, 'confidentiality.md');
+    writeFileSync(file, `${CONFIDENTIAL_TEXT}\n`);
+    process.env.ARALAB_CONFIDENTIAL_PROVIDERS = 'Aralab GPT,Large File Agents';
+    process.env.ARALAB_CONFIDENTIAL_INSTRUCTIONS_FILE = file;
+  });
+
+  afterAll(() => {
+    jest.requireActual<typeof import('fs')>('fs').rmSync(dir, { recursive: true, force: true });
+    for (const [name, value] of [
+      ['ARALAB_CONFIDENTIAL_PROVIDERS', savedEnv.providers],
+      ['ARALAB_CONFIDENTIAL_INSTRUCTIONS_FILE', savedEnv.file],
+    ] as const) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  async function initialize(provider: string, existing?: string) {
+    const { agent, req, res, loadTools, db } = createMocks({
+      provider,
+      /* A custom endpoint is remapped to a built-in client before instructions are
+       * resolved; the match must still key on the served endpoint name. */
+      overrideProvider: provider === Providers.ANTHROPIC ? provider : Providers.OPENAI,
+    });
+    if (existing != null) {
+      agent.additional_instructions = existing;
+    }
+    return initializeAgent(
+      {
+        req,
+        res,
+        agent,
+        loadTools,
+        endpointOption: { endpoint: EModelEndpoint.agents },
+        allowedProviders: new Set([provider]),
+        isInitialAgent: true,
+      },
+      db,
+    );
+  }
+
+  it('appends the confidentiality text for a Large File Agents agent', async () => {
+    const result = await initialize('Large File Agents');
+    expect(result.provider).toBe(Providers.OPENAI);
+    expect(result.additional_instructions).toBe(CONFIDENTIAL_TEXT);
+  });
+
+  it('appends after existing dynamic instructions for an Aralab GPT agent', async () => {
+    const result = await initialize('Aralab GPT', 'Agent dynamic guidance.');
+    expect(result.additional_instructions).toBe(`Agent dynamic guidance.\n\n${CONFIDENTIAL_TEXT}`);
+  });
+
+  it('leaves agents on other providers untouched', async () => {
+    const result = await initialize(Providers.ANTHROPIC);
+    expect(result.additional_instructions ?? '').not.toContain(CONFIDENTIAL_TEXT);
+  });
+});

@@ -121,6 +121,8 @@ export * from './tools';
 export * from './web';
 /* Langfuse */
 export * from './langfuse';
+/* Aralab patch 10 */
+export * from './aralab/confidential';
 /* Traces */
 export * from './traces';
 /* Insights */

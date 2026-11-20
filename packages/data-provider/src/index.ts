@@ -121,3 +121,6 @@ export * from './types/channelFeedback';
 export * from './types/channelRuns';
 
 export * from './codeSetup';
+
+/* Aralab patch 10b */
+export * from './aralabRouter';

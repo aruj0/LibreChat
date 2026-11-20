@@ -431,7 +431,7 @@ describe('aralab model alias (patch 10b)', () => {
       });
     });
 
-    it('neutralises customParams.defaultParamsEndpoint "openrouter" on all four endpoints', () => {
+    it('sends customParams.defaultParamsEndpoint "openrouter" as the neutral aralab-router token (R18)', () => {
       const names = ['Aralab GPT', 'Large File Agents', 'Aralab (dev)', 'Large File Agents (dev)'];
       const endpoints = Object.fromEntries(
         names.map((name) => [
@@ -441,8 +441,9 @@ describe('aralab model alias (patch 10b)', () => {
       );
       const out = aliasPayload(endpoints, map);
       for (const name of names) {
-        expect(out[name].customParams.defaultParamsEndpoint).toBe('custom');
+        expect(out[name].customParams.defaultParamsEndpoint).toBe('aralab-router');
       }
+      expect(JSON.stringify(out)).not.toMatch(/openrouter/i);
     });
 
     it('keeps "openrouter" inside content keys and only replaces exact values', () => {

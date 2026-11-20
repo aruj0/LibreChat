@@ -109,6 +109,13 @@ describe('aralabModelAlias middleware (patch 10b)', () => {
               type: 'custom',
               providerId: 'openrouter',
               modelDisplayLabel: 'Aralab GPT',
+              customParams: { defaultParamsEndpoint: 'openrouter' },
+            },
+            'Aralab (dev)': {
+              type: 'custom',
+              providerId: 'openrouter',
+              modelDisplayLabel: 'Aralab (dev)',
+              customParams: { defaultParamsEndpoint: 'openrouter' },
             },
           }),
         ),
@@ -126,8 +133,18 @@ describe('aralabModelAlias middleware (patch 10b)', () => {
     });
     const endpoints = await request(app).get('/api/endpoints').expect(200);
     expect(JSON.parse(endpoints.text)).toEqual({
-      'Aralab GPT': { type: 'custom', modelDisplayLabel: 'Aralab GPT' },
+      'Aralab GPT': {
+        type: 'custom',
+        modelDisplayLabel: 'Aralab GPT',
+        customParams: { defaultParamsEndpoint: 'aralab-router' },
+      },
+      'Aralab (dev)': {
+        type: 'custom',
+        modelDisplayLabel: 'Aralab (dev)',
+        customParams: { defaultParamsEndpoint: 'aralab-router' },
+      },
     });
+    expect(endpoints.text).not.toMatch(/openrouter/i);
     const abort = await request(app).post('/api/agents/chat/abort').expect(200);
     expect(abort.body.conversation.model).toBe('Aralab GPT');
     expect((await request(app).get('/api/convos/plain')).text).toBe('plain glm text');

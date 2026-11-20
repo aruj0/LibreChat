@@ -12,7 +12,11 @@
  * `reasoning`, `think`) is never rewritten; only server-authored error text is
  * sanitised.
  */
-import { encodeEphemeralAgentId, parseEphemeralAgentId } from 'librechat-data-provider';
+import {
+  encodeEphemeralAgentId,
+  parseEphemeralAgentId,
+  ARALAB_ROUTER_PARAMS_ENDPOINT,
+} from 'librechat-data-provider';
 import type { AppConfig } from '@librechat/data-schemas';
 
 /** `toAlias`: real id → label. `toReal`: `${endpoint}::${label}` → real id. */
@@ -33,11 +37,11 @@ const MAX_BODY_DEPTH = 6;
 /** A bare upstream gateway name as a value (`provider`, `defaultParamsEndpoint`, …). */
 const OPENROUTER_VALUE = /^\s*openrouter\s*$/i;
 /**
- * What a bare `openrouter` value becomes. These endpoints are `type: custom`, and `custom` is
- * the schema default of `customParams.defaultParamsEndpoint`: the client resolves the same
- * OpenAI-compatible parameter set (minus OpenRouter's prompt-cache toggles) and the same
- * reasoning control. `contextUsage.provider` and `accounting.calls[].provider` are not read by
- * the client. The server never reads these values back from a request.
+ * What a bare `openrouter` value becomes (`contextUsage.provider`, `accounting.calls[].provider`,
+ * …): display/API metadata the client does not branch on. `customParams.defaultParamsEndpoint`
+ * is the exception: the client branches on it (parameter sets, agent-builder pruning, per-model
+ * reasoning catalogs), so it gets `ARALAB_ROUTER_PARAMS_ENDPOINT`, which
+ * `dataService.getAIEndpoints` maps back to `openrouter` (ruling R18).
  */
 const NEUTRAL_PROVIDER = 'custom';
 /** Request keys that may carry an ephemeral agent id (`<endpoint>__<model>___<sender>`). */
@@ -246,6 +250,14 @@ function aliasValue(value: unknown, map: ModelAliasMap, memo: WeakMap<object, un
       } else {
         out[key] = child;
       }
+      continue;
+    }
+    if (
+      key === 'defaultParamsEndpoint' &&
+      typeof child === 'string' &&
+      OPENROUTER_VALUE.test(child)
+    ) {
+      out[key] = ARALAB_ROUTER_PARAMS_ENDPOINT;
       continue;
     }
     if (ERROR_KEYS.has(key) && typeof child === 'string') {

@@ -1,11 +1,17 @@
 import {
   agentParamSettings,
   EModelEndpoint,
+  restoreAralabRouterParams,
+  ARALAB_ROUTER_PARAMS_ENDPOINT,
   SettingTypes,
   ComponentTypes,
   ReasoningParameterFormat,
 } from 'librechat-data-provider';
-import type { AgentModelParameters, TModelReasoning } from 'librechat-data-provider';
+import type {
+  AgentModelParameters,
+  TEndpointsConfig,
+  TModelReasoning,
+} from 'librechat-data-provider';
 import { pruneAgentModelParameters, resolveAgentParameterSettings } from '../parameters';
 
 /**
@@ -440,5 +446,53 @@ describe('Hydrogen saved Agent controls', () => {
       webSearchAllowed: true,
     });
     expect(settings.visibleParameters.map((param) => param.key)).not.toContain('thinkingLevel');
+  });
+});
+
+/**
+ * Aralab patch 10b (R18): the server serves `defaultParamsEndpoint: 'aralab-router'` for its
+ * OpenRouter endpoints and `dataService.getAIEndpoints` maps it back to `openrouter`. Opening
+ * and saving an agent on those endpoints must keep the OpenRouter prompt-cache parameters.
+ */
+describe('pruneAgentModelParameters — served aralab-router token', () => {
+  const served = {
+    'Aralab (dev)': {
+      type: EModelEndpoint.custom,
+      customParams: { defaultParamsEndpoint: ARALAB_ROUTER_PARAMS_ENDPOINT },
+    },
+  } as unknown as TEndpointsConfig;
+  const stored = {
+    model: 'anthropic/claude-opus-5.5',
+    promptCache: true,
+    promptCacheTtl: '1h',
+    temperature: 0.7,
+  } as unknown as AgentModelParameters;
+
+  const settingsFor = (endpointsConfig: Record<string, unknown>) =>
+    resolveAgentParameterSettings({
+      endpointsConfig: endpointsConfig as never,
+      startupConfig: undefined,
+      model: 'anthropic/claude-opus-5.5',
+      provider: 'Aralab (dev)',
+      webSearchAllowed: false,
+    });
+
+  it('keeps promptCache/promptCacheTtl when the config came through the transform', () => {
+    const settings = settingsFor(restoreAralabRouterParams(served) as Record<string, unknown>);
+    expect(settings.schemaResolved).toBe(true);
+    const pruned = pruneAgentModelParameters(stored, settings);
+    expect(pruned).toMatchObject({ promptCache: true, promptCacheTtl: '1h', temperature: 0.7 });
+  });
+
+  it('control: a generic custom parameter set would prune them', () => {
+    const settings = settingsFor({
+      'Aralab (dev)': {
+        type: EModelEndpoint.custom,
+        customParams: { defaultParamsEndpoint: EModelEndpoint.custom },
+      },
+    });
+    const pruned = pruneAgentModelParameters(stored, settings) as Record<string, unknown>;
+    expect(pruned.promptCache).toBeUndefined();
+    expect(pruned.promptCacheTtl).toBeUndefined();
   });
 });

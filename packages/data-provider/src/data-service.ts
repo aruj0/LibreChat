@@ -46,6 +46,7 @@ import {
 } from './types/responseReview';
 import { codeSetupAttemptSchema, codeSetupApprovalRequestSchema } from './codeSetup';
 import { TOOL_CALL_PREVIEWS_PARAM, TOOL_CALL_PREVIEWS_VERSION } from './previews';
+import { restoreAralabRouterParams } from './aralabRouter';
 import * as permissions from './accessPermissions';
 import { setClientLimits } from './clientLimits';
 import * as endpoints from './api-endpoints';
@@ -704,7 +705,10 @@ export const getStartupConfig = (
 };
 
 export const getAIEndpoints = (): Promise<t.TEndpointsConfig> => {
-  return request.get(endpoints.aiEndpoints());
+  /* Aralab patch 10b: the one point where the served neutral token becomes `openrouter` again. */
+  return request
+    .get<t.TEndpointsConfig>(endpoints.aiEndpoints())
+    .then((config) => restoreAralabRouterParams(config));
 };
 
 export const getTokenConfig = async (endpoint?: string): Promise<t.TTokenConfigMap> => {

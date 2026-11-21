@@ -35,8 +35,87 @@ export function isModelAliasEnabled(env: NodeJS.ProcessEnv = process.env): boole
   return value == null || !ALIAS_OFF.test(value);
 }
 
-/** `toAlias`: real id → label. `toReal`: `${endpoint}::${label}` → real id. */
-export type ModelAliasMap = { toAlias: Map<string, string>; toReal: Map<string, string> };
+/**
+ * `toAlias`: real id → label. `toReal`: `${endpoint}::${label}` → real id.
+ * `hide`: extra upstream words for error text (slugs of aliased non-`z-ai/` ids plus
+ * `ARALAB_ALIAS_HIDE_WORDS`); absent = only the built-in GLM/OpenRouter words.
+ */
+export type ModelAliasMap = {
+  toAlias: Map<string, string>;
+  toReal: Map<string, string>;
+  hide?: RegExp;
+  /** Display names of aliased non-`z-ai/` models ("Google: Gemini 4 Neon"), replaced by the label. */
+  names?: RegExp;
+};
+
+/** Comma-separated env list, trimmed, empties dropped. */
+function envList(name: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  return (env[name] ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item !== '');
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Error-text pattern for the extra upstream words: each aliased non-`z-ai/` id's slug (the
+ * part after `/`, separators flexible so "Gemini 4 Neon" matches `gemini-4-neon`) and each
+ * `ARALAB_ALIAS_HIDE_WORDS` entry, with any attached `[\w.:-]` run (`google-vertex/global`).
+ */
+function slugPattern(id: string): string | undefined {
+  const slug = id.slice(id.indexOf('/') + 1).replace(/:.*$/, '');
+  if (slug.length < 3) {
+    return undefined;
+  }
+  return slug
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map(escapeRegExp)
+    .join('[-_\\s]?');
+}
+
+/** "Google: Gemini 4 Neon", "gemini-4-neon-20261118": a display name or slug of an aliased id. */
+function buildNamePattern(ids: Iterable<string>): RegExp | undefined {
+  const parts = new Set<string>();
+  for (const id of ids) {
+    const pattern = ALIASED_ID.test(id) ? undefined : slugPattern(id);
+    if (pattern != null) {
+      parts.add(pattern);
+    }
+  }
+  if (parts.size === 0) {
+    return undefined;
+  }
+  return new RegExp(
+    `(?:\\b[A-Za-z][\\w.]*:\\s*)?\\b(?:${[...parts].join('|')})(?:-\\d{6,8})?\\b`,
+    'gi',
+  );
+}
+
+function buildHidePattern(ids: Iterable<string>, words: string[]): RegExp | undefined {
+  const parts = new Set<string>();
+  for (const id of ids) {
+    if (ALIASED_ID.test(id)) {
+      continue;
+    }
+    const pattern = slugPattern(id);
+    if (pattern != null) {
+      parts.add(pattern);
+    }
+  }
+  for (const word of words) {
+    if (word.length >= 3) {
+      parts.add(escapeRegExp(word));
+    }
+  }
+  if (parts.size === 0) {
+    return undefined;
+  }
+  return new RegExp(`[\\w.:-]*(?:${[...parts].join('|')})[\\w.:/-]*`, 'gi');
+}
 
 /** Used when a `z-ai/` id has no single owning label (or no config is at hand). */
 const FALLBACK_LABEL = 'Aralab GPT';
@@ -87,24 +166,32 @@ function modelIds(models: CustomEndpointLike['models']): string[] {
 }
 
 /**
- * Builds the alias map from the custom endpoints whose `models.default` holds `z-ai/`
- * ids and that set a `modelDisplayLabel`. An id claimed by endpoints with different
- * labels maps to the fallback label.
+ * Builds the alias map from the custom endpoints that set a `modelDisplayLabel`: their
+ * `z-ai/` ids, and every id of an endpoint named in `ARALAB_ALIAS_ENDPOINTS` (so the model
+ * behind "Aralab GPT" can change in config alone). An id claimed by endpoints with different
+ * labels maps to the fallback label. `toReal` resolves a label to the endpoint's FIRST
+ * aliased id: list the current model first in `models.default`.
  */
-export function buildModelAliasMap(appConfig?: AppConfig | null): ModelAliasMap {
+export function buildModelAliasMap(
+  appConfig?: AppConfig | null,
+  env: NodeJS.ProcessEnv = process.env,
+): ModelAliasMap {
   const toAlias = new Map<string, string>();
   const toReal = new Map<string, string>();
+  const aliasEndpoints = new Set(envList('ARALAB_ALIAS_ENDPOINTS', env));
+  const hideWords = envList('ARALAB_ALIAS_HIDE_WORDS', env);
   const endpoints = (appConfig?.endpoints as { custom?: unknown } | undefined)?.custom;
   if (!Array.isArray(endpoints)) {
-    return { toAlias, toReal };
+    return { toAlias, toReal, hide: buildHidePattern([], hideWords) };
   }
   for (const endpoint of endpoints as CustomEndpointLike[]) {
     const { name, modelDisplayLabel: label } = endpoint ?? {};
     if (typeof name !== 'string' || typeof label !== 'string' || label.trim() === '') {
       continue;
     }
+    const wholeEndpoint = aliasEndpoints.has(name);
     for (const id of modelIds(endpoint.models)) {
-      if (!ALIASED_ID.test(id)) {
+      if (!wholeEndpoint && !ALIASED_ID.test(id)) {
         continue;
       }
       const existing = toAlias.get(id);
@@ -115,7 +202,12 @@ export function buildModelAliasMap(appConfig?: AppConfig | null): ModelAliasMap 
       }
     }
   }
-  return { toAlias, toReal };
+  return {
+    toAlias,
+    toReal,
+    hide: buildHidePattern(toAlias.keys(), hideWords),
+    names: buildNamePattern(toAlias.keys()),
+  };
 }
 
 const mapCache = new WeakMap<object, ModelAliasMap>();
@@ -154,8 +246,15 @@ function labelFor(id: string, map: ModelAliasMap): string {
   return labels.size === 1 ? [...labels][0] : FALLBACK_LABEL;
 }
 
+/** `google/gemini-4-neon-20261118` / `…:nitro` → `google/gemini-4-neon` (dated or variant ids). */
+const ID_VARIANT = /(?:-\d{6,8})?(?::[\w-]+)?$/;
+
 function isAliasedId(value: string, map: ModelAliasMap): boolean {
-  return map.toAlias.has(value) || ALIASED_ID.test(value);
+  return (
+    map.toAlias.has(value) ||
+    ALIASED_ID.test(value) ||
+    (value.includes('/') && map.toAlias.has(value.replace(ID_VARIANT, '')))
+  );
 }
 
 /**
@@ -423,23 +522,28 @@ export function sanitizeUpstreamError(text: string, map: ModelAliasMap): string 
   if (!isModelAliasEnabled()) {
     return text;
   }
-  if (typeof text !== 'string' || !UPSTREAM_TRIGGER.test(text)) {
+  if (typeof text !== 'string' || !(UPSTREAM_TRIGGER.test(text) || hideTest(map, text))) {
     return text;
   }
   let out = text
     .replace(/\s*\bProviders? serving\b[^:\n"]*:[^\n"]*?(?=\.\s+[A-Z]|["\n]|$)/gi, '')
     .replace(/\bz-ai\/[\w.:-]*\w/gi, (id) => labelFor(id, map));
-  for (const [id, label] of map.toAlias) {
-    out = out.split(id).join(label);
+  /* Longest first, so `google/gemini-4-neon` is not cut inside a longer listed id. */
+  for (const [id, label] of [...map.toAlias].sort((a, b) => b[0].length - a[0].length)) {
+    out = out.replace(new RegExp(`${escapeRegExp(id)}(?:-\\d{6,8})?(?::[\\w-]+)?`, 'gi'), label);
+  }
+  if (map.names != null) {
+    out = out.replace(map.names, () => labelFor([...map.toAlias.keys()][0] ?? '', map));
   }
   out = out
     .replace(/\b(?:https?:\/\/|www\.)[^\s"'<>]+/gi, (url) =>
-      UPSTREAM_TRIGGER.test(urlHost(url)) ? '' : url,
+      UPSTREAM_TRIGGER.test(urlHost(url)) || hideTest(map, urlHost(url)) ? '' : url,
     )
     .replace(/\bopenrouter(?:\.ai)?\b/gi, '')
     .replace(/\bz[-.]?ai\b/gi, '')
     .replace(/\bglm[-\w.]*/gi, '')
     .replace(/\bbaseten\b/gi, '')
+    .replace(map.hide ?? /(?!)/g, '')
     .replace(/\b(?:via|from|on|at|by)\s*(?=[.,;:)"\n]|$)/gi, '')
     .replace(/\(\s*\)/g, '')
     .replace(/[ \t]+([.,;:)])/g, '$1')
@@ -450,8 +554,29 @@ export function sanitizeUpstreamError(text: string, map: ModelAliasMap): string 
   return out === '' ? 'An error occurred while processing your request.' : out;
 }
 
+/** `map.hide` is global (`g`): reset `lastIndex` so `test` is stateless. */
+function hideTest(map: ModelAliasMap, text: string): boolean {
+  if (map.hide == null) {
+    return false;
+  }
+  map.hide.lastIndex = 0;
+  const hit = map.hide.test(text);
+  map.hide.lastIndex = 0;
+  return hit;
+}
+
 function urlHost(url: string): string {
   return url.replace(/^(?:https?:\/\/)?/i, '').split(/[/?#]/, 1)[0] ?? '';
+}
+
+/** True when `text` contains any aliased id verbatim (a non-`z-ai/` model id). */
+function mentionsAliasedId(text: string, map: ModelAliasMap): boolean {
+  for (const id of map.toAlias.keys()) {
+    if (text.includes(id)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Cheap pre-check so ordinary token deltas are written without a parse. */
@@ -466,7 +591,7 @@ export function aliasSseChunk(chunk: string, map: ModelAliasMap): string {
   if (!isModelAliasEnabled()) {
     return chunk;
   }
-  if (!SSE_TRIGGER.test(chunk)) {
+  if (!SSE_TRIGGER.test(chunk) && !hideTest(map, chunk) && !mentionsAliasedId(chunk, map)) {
     return chunk;
   }
   return chunk.replace(/^(data: ?)(.+)$/gm, (line, prefix: string, body: string) => {
@@ -489,7 +614,7 @@ export function aliasJsonText(text: string, map: ModelAliasMap): string {
   if (!isModelAliasEnabled()) {
     return text;
   }
-  if (!SSE_TRIGGER.test(text)) {
+  if (!SSE_TRIGGER.test(text) && !hideTest(map, text) && !mentionsAliasedId(text, map)) {
     return text;
   }
   try {

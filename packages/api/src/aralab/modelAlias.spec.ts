@@ -572,4 +572,97 @@ describe('aralab model alias (patch 10b)', () => {
       expect(sanitizeUpstreamError(`model ${GLM} failed`, map)).not.toMatch(LEAK);
     });
   });
+
+  describe('endpoint-wide aliasing (ARALAB_ALIAS_ENDPOINTS, model switch to Gemini)', () => {
+    const NEON = 'google/gemini-4-neon';
+    const env = {
+      ARALAB_ALIAS_ENDPOINTS: 'Aralab GPT,Large File Agents',
+      ARALAB_ALIAS_HIDE_WORDS: 'google,vertex',
+    };
+    const geminiConfig = {
+      endpoints: {
+        custom: [
+          {
+            name: 'Aralab GPT',
+            baseURL: 'https://openrouter.ai/api/v1',
+            models: { default: [NEON, GLM] },
+            modelDisplayLabel: 'Aralab GPT',
+          },
+          {
+            name: 'Large File Agents',
+            baseURL: 'https://openrouter.ai/api/v1',
+            models: { default: [NEON, GLM] },
+            modelDisplayLabel: 'Aralab GPT',
+          },
+          {
+            name: 'Aralab (dev)',
+            baseURL: 'https://openrouter.ai/api/v1',
+            models: { default: ['anthropic/claude-opus-5.5', 'google/gemini-3.8-flash'] },
+            modelDisplayLabel: 'Aralab (dev)',
+          },
+        ],
+      },
+    } as unknown as AppConfig;
+    const HIDDEN = /gemini|google|vertex|z-?ai|glm|openrouter|baseten/i;
+
+    it('aliases every listed id of the named endpoints, plus dated and variant ids', () => {
+      const map = buildModelAliasMap(geminiConfig, env);
+      expect(aliasPayload({ model: NEON }, map)).toEqual({ model: 'Aralab GPT' });
+      expect(aliasPayload({ model: `${NEON}-20261118` }, map)).toEqual({ model: 'Aralab GPT' });
+      expect(aliasPayload({ model: `${NEON}:nitro` }, map)).toEqual({ model: 'Aralab GPT' });
+      expect(aliasPayload({ model: GLM }, map)).toEqual({ model: 'Aralab GPT' });
+    });
+
+    it('label resolves to the FIRST listed id (the current model)', () => {
+      const map = buildModelAliasMap(geminiConfig, env);
+      expect(resolveAliasedModel('Aralab GPT', 'Aralab GPT', map)).toBe(NEON);
+      expect(resolveAliasedModel('Large File Agents', 'Aralab GPT', map)).toBe(NEON);
+    });
+
+    it("leaves other endpoints' ids alone (dev Gemini, Claude, the google endpoint)", () => {
+      const map = buildModelAliasMap(geminiConfig, env);
+      const body = { a: 'google/gemini-3.8-flash', b: 'anthropic/claude-opus-5.5', c: 'google' };
+      expect(aliasPayload(body, map)).toEqual(body);
+    });
+
+    it('composite ephemeral agent ids carrying the new model are aliased', () => {
+      const map = buildModelAliasMap(geminiConfig, env);
+      const out = aliasPayload({ agent_id: `Aralab GPT__${NEON}___Aralab GPT` }, map) as {
+        agent_id: string;
+      };
+      expect(out.agent_id).not.toMatch(HIDDEN);
+    });
+
+    it('sanitises upstream error text naming the new vendor/model/provider', () => {
+      const map = buildModelAliasMap(geminiConfig, env);
+      for (const err of [
+        `No endpoints found for ${NEON}-20261118 via https://openrouter.ai/api/v1`,
+        'Provider returned error: Google: Gemini 4 Neon is overloaded (google-vertex/global)',
+        `Vertex AI quota exceeded for ${NEON}`,
+      ]) {
+        const out = sanitizeUpstreamError(err, map);
+        expect(out).not.toMatch(HIDDEN);
+        expect(out.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('SSE frames and pre-serialised JSON carrying the new id are aliased', () => {
+      const map = buildModelAliasMap(geminiConfig, env);
+      const frame = `data: ${JSON.stringify({ model: `${NEON}-20261118` })}\n\n`;
+      expect(aliasSseChunk(frame, map)).not.toMatch(HIDDEN);
+      expect(aliasJsonText(JSON.stringify({ model: NEON }), map)).not.toMatch(HIDDEN);
+    });
+
+    it('without ARALAB_ALIAS_ENDPOINTS only z-ai ids alias (legacy behaviour)', () => {
+      const map = buildModelAliasMap(geminiConfig, {});
+      expect(aliasPayload({ model: NEON }, map)).toEqual({ model: NEON });
+      expect(aliasPayload({ model: GLM }, map)).toEqual({ model: 'Aralab GPT' });
+    });
+
+    it('model content mentioning Gemini is never rewritten', () => {
+      const map = buildModelAliasMap(geminiConfig, env);
+      const msg = { model: NEON, text: 'Gemini and Google are mentioned here' };
+      expect(aliasPayload(msg, map)).toEqual({ model: 'Aralab GPT', text: msg.text });
+    });
+  });
 });

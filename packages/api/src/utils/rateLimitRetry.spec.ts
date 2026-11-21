@@ -1,6 +1,9 @@
 import {
   withRateLimitRetry,
   isRateLimitResponse,
+  parseRateLimitFallbacks,
+  normalizeStreamRateLimit,
+  firstStreamEventIsRateLimit,
   installProviderRateLimitRetry,
 } from './rateLimitRetry';
 import { getLLMConfig as getAnthropicLLMConfig } from '~/endpoints/anthropic/llm';
@@ -141,5 +144,123 @@ describe('provider wiring (every provider installs the retry)', () => {
       modelOptions: { model: 'gemini-3.8-flash' },
     });
     expect(installed()).toBe(true);
+  });
+});
+
+/** Patch 6b: OpenRouter's in-stream 429 (HTTP 200, first data event is the error). */
+describe('in-stream rate limits (patch 6b)', () => {
+  const OR = 'https://openrouter.ai/api/v1/chat/completions';
+  const RL_EVENT =
+    'data: {"error":{"code":429,"message":"Provider returned error","metadata":{"error_type":"rate_limit_exceeded","provider_code":"429"}}}\n\n';
+  const OK_EVENT = 'data: {"id":"gen-1","choices":[{"delta":{"content":"Olá"}}]}\n\n';
+  const sse = (...parts: string[]) => {
+    const enc = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        for (const p of parts) c.enqueue(enc.encode(p));
+        c.close();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  };
+  const body = (model: string) => JSON.stringify({ model, stream: true, messages: [] });
+  beforeEach(() => noSleep.mockClear());
+
+  it('firstStreamEventIsRateLimit: comments skipped, verdict from the first data line', () => {
+    expect(firstStreamEventIsRateLimit(': OPENROUTER PROCESSING\n\n')).toBeUndefined();
+    expect(firstStreamEventIsRateLimit(': OPENROUTER PROCESSING\n\n' + RL_EVENT)).toBe(true);
+    expect(firstStreamEventIsRateLimit(OK_EVENT + RL_EVENT)).toBe(false);
+    expect(firstStreamEventIsRateLimit('data: {"error":{"code":400,"message":"bad"}}\n')).toBe(
+      false,
+    );
+    expect(
+      firstStreamEventIsRateLimit(
+        'data: {"error":{"code":502,"metadata":{"error_type":"rate_limit_exceeded"}}}\n',
+      ),
+    ).toBe(true);
+    expect(firstStreamEventIsRateLimit('data: {"error":{"co')).toBeUndefined();
+  });
+
+  it('normalizeStreamRateLimit: a normal stream passes through byte for byte', async () => {
+    const out = await normalizeStreamRateLimit(
+      sse(': OPENROUTER PROCESSING\n\n', OK_EVENT, 'data: [DONE]\n\n'),
+    );
+    expect(out.status).toBe(200);
+    expect(await out.text()).toBe(': OPENROUTER PROCESSING\n\n' + OK_EVENT + 'data: [DONE]\n\n');
+  });
+
+  it('normalizeStreamRateLimit: an in-stream 429 becomes a 429 carrying the error text', async () => {
+    const out = await normalizeStreamRateLimit(sse(': OPENROUTER PROCESSING\n\n', RL_EVENT));
+    expect(out.status).toBe(429);
+    expect(await out.text()).toContain('rate_limit_exceeded');
+  });
+
+  it('retries an in-stream 429 and returns the stream that succeeds', async () => {
+    const base = jest
+      .fn()
+      .mockResolvedValueOnce(sse(RL_EVENT))
+      .mockResolvedValueOnce(sse(OK_EVENT));
+    const fetch = withRateLimitRetry(base as unknown as typeof globalThis.fetch, {
+      sleep: noSleep,
+      fallbacks: {},
+    });
+    const out = await fetch(OR, { method: 'POST', body: body('google/gemini-4-neon') });
+    expect(base).toHaveBeenCalledTimes(2);
+    expect(noSleep.mock.calls.map((c) => (c as unknown[])[0])).toEqual([5000]);
+    expect(await out.text()).toBe(OK_EVENT);
+  });
+
+  it('after the last retry, replays once on the fallback model (OpenRouter only)', async () => {
+    const base = jest.fn(async (_url: unknown, init?: RequestInit) =>
+      JSON.parse(String(init?.body)).model === 'z-ai/glm-5.3-flash' ? sse(OK_EVENT) : sse(RL_EVENT),
+    );
+    const fetch = withRateLimitRetry(base as unknown as typeof globalThis.fetch, {
+      sleep: noSleep,
+      fallbacks: { 'google/gemini-4-neon': 'z-ai/glm-5.3-flash' },
+    });
+    const out = await fetch(OR, { method: 'POST', body: body('google/gemini-4-neon') });
+    expect(base).toHaveBeenCalledTimes(5);
+    const models = base.mock.calls.map((c) => JSON.parse(String((c[1] as RequestInit).body)).model);
+    expect(models).toEqual([
+      'google/gemini-4-neon',
+      'google/gemini-4-neon',
+      'google/gemini-4-neon',
+      'google/gemini-4-neon',
+      'z-ai/glm-5.3-flash',
+    ]);
+    expect(await out.text()).toBe(OK_EVENT);
+  });
+
+  it('no fallback for other hosts, unmapped models, or when the env is unset', async () => {
+    const base = jest.fn(async () => sse(RL_EVENT));
+    const fb = { 'google/gemini-4-neon': 'z-ai/glm-5.3-flash' };
+    for (const [url, model] of [
+      ['https://api.anthropic.com/v1/messages', 'google/gemini-4-neon'],
+      [OR, 'anthropic/claude-sonnet-5.5'],
+    ]) {
+      base.mockClear();
+      const fetch = withRateLimitRetry(base as unknown as typeof globalThis.fetch, {
+        sleep: noSleep,
+        fallbacks: fb,
+      });
+      const out = await fetch(url, { method: 'POST', body: body(model) });
+      expect(base).toHaveBeenCalledTimes(4);
+      expect(out.status).toBe(429);
+    }
+    expect(parseRateLimitFallbacks(undefined)).toEqual({});
+    expect(parseRateLimitFallbacks(' google/gemini-4-neon = z-ai/glm-5.3-flash ,bad, x=')).toEqual({
+      'google/gemini-4-neon': 'z-ai/glm-5.3-flash',
+    });
+  });
+
+  it('a stream whose first data event is content is never retried, even if an error follows later', async () => {
+    const base = jest.fn(async () => sse(OK_EVENT, RL_EVENT));
+    const fetch = withRateLimitRetry(base as unknown as typeof globalThis.fetch, {
+      sleep: noSleep,
+      fallbacks: {},
+    });
+    const out = await fetch(OR, { method: 'POST', body: body('google/gemini-4-neon') });
+    expect(base).toHaveBeenCalledTimes(1);
+    expect(await out.text()).toBe(OK_EVENT + RL_EVENT);
   });
 });

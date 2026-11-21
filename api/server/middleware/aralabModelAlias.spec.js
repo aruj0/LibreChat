@@ -359,3 +359,51 @@ describe('aralabModelAlias middleware (patch 10b)', () => {
     expect(getRequestAliasMap({}).toAlias).toBeInstanceOf(Map);
   });
 });
+
+describe('aralabModelAlias kill switch (ARALAB_MODEL_ALIAS)', () => {
+  const saved = process.env.ARALAB_MODEL_ALIAS;
+  afterEach(() => {
+    if (saved === undefined) {
+      delete process.env.ARALAB_MODEL_ALIAS;
+    } else {
+      process.env.ARALAB_MODEL_ALIAS = saved;
+    }
+  });
+
+  it('off: responses pass through unaliased, request labels still resolve to the real id', async () => {
+    process.env.ARALAB_MODEL_ALIAS = 'false';
+    const app = buildApp((a) =>
+      a.post('/api/agents/chat', (req, res) => res.json({ got: req.body.model, model: GLM })),
+    );
+    const { body } = await request(app)
+      .post('/api/agents/chat')
+      .send({ endpoint: 'Aralab GPT', model: 'Aralab GPT' })
+      .expect(200);
+    expect(body).toEqual({ got: GLM, model: GLM });
+  });
+
+  it('off: SSE frames pass through unaliased', async () => {
+    process.env.ARALAB_MODEL_ALIAS = '0';
+    const app = buildApp((a) =>
+      a.get('/api/agents/chat/stream', (_req, res) => {
+        sse(res);
+        res.write(`data: ${JSON.stringify({ model: GLM })}\n\n`);
+        res.end();
+      }),
+    );
+    const { text } = await request(app).get('/api/agents/chat/stream').expect(200);
+    expect(text).toContain(GLM);
+  });
+
+  it('on (unset): the same route is aliased (positive control)', async () => {
+    delete process.env.ARALAB_MODEL_ALIAS;
+    const app = buildApp((a) =>
+      a.post('/api/agents/chat', (req, res) => res.json({ got: req.body.model, model: GLM })),
+    );
+    const { body } = await request(app)
+      .post('/api/agents/chat')
+      .send({ endpoint: 'Aralab GPT', model: 'Aralab GPT' })
+      .expect(200);
+    expect(body).toEqual({ got: 'Aralab GPT', model: 'Aralab GPT' });
+  });
+});

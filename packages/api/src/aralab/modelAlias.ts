@@ -19,6 +19,22 @@ import {
 } from 'librechat-data-provider';
 import type { AppConfig } from '@librechat/data-schemas';
 
+/** Values of `ARALAB_MODEL_ALIAS` that switch the response side off (case-insensitive). */
+const ALIAS_OFF = /^\s*(?:false|off|0|no|disabled?)\s*$/i;
+
+/**
+ * Kill switch for the response side of patch 10b. `ARALAB_MODEL_ALIAS=false` (or `off`, `0`,
+ * `no`, `disable(d)`) makes `aliasPayload`, `aliasSseChunk`, `aliasJsonText` and
+ * `sanitizeUpstreamError` return their input unchanged, i.e. upstream behaviour: real ids,
+ * OpenRouter names and raw upstream error text reach users. Unset or any other value = on.
+ * The request side (`resolveAliased*`) stays on either way, so a client still holding
+ * aliased labels keeps resolving to the real ids. Read on every call, never cached.
+ */
+export function isModelAliasEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env.ARALAB_MODEL_ALIAS;
+  return value == null || !ALIAS_OFF.test(value);
+}
+
 /** `toAlias`: real id → label. `toReal`: `${endpoint}::${label}` → real id. */
 export type ModelAliasMap = { toAlias: Map<string, string>; toReal: Map<string, string> };
 
@@ -280,6 +296,9 @@ function aliasValue(value: unknown, map: ModelAliasMap, memo: WeakMap<object, un
  * error parts (`{type:'error'}`) inside `content` and `text` on an `error: true` message.
  */
 export function aliasPayload<T>(value: T, map: ModelAliasMap): T {
+  if (!isModelAliasEnabled()) {
+    return value;
+  }
   return aliasValue(value, map, new WeakMap()) as T;
 }
 
@@ -401,6 +420,9 @@ export function resolveAliasedBody<T>(body: T, map: ModelAliasMap): T {
  * `z-ai|openrouter|baseten|glm` is returned unchanged. Log the original before calling this.
  */
 export function sanitizeUpstreamError(text: string, map: ModelAliasMap): string {
+  if (!isModelAliasEnabled()) {
+    return text;
+  }
   if (typeof text !== 'string' || !UPSTREAM_TRIGGER.test(text)) {
     return text;
   }
@@ -441,6 +463,9 @@ const SSE_TRIGGER = /z-ai|openrouter|baseten|glm|baseURL|providerId/i;
  * are kept; a top-level JSON string (an error frame) is sanitised.
  */
 export function aliasSseChunk(chunk: string, map: ModelAliasMap): string {
+  if (!isModelAliasEnabled()) {
+    return chunk;
+  }
   if (!SSE_TRIGGER.test(chunk)) {
     return chunk;
   }
@@ -461,6 +486,9 @@ export function aliasSseChunk(chunk: string, map: ModelAliasMap): string {
  * `EndpointController` and `abortMessage` do). Text that is not JSON is returned unchanged.
  */
 export function aliasJsonText(text: string, map: ModelAliasMap): string {
+  if (!isModelAliasEnabled()) {
+    return text;
+  }
   if (!SSE_TRIGGER.test(text)) {
     return text;
   }

@@ -5,6 +5,7 @@ import {
   aliasSseChunk,
   aliasPayload,
   buildModelAliasMap,
+  isModelAliasEnabled,
   resolveAliasedBody,
   resolveAliasedEphemeralId,
   resolveAliasedModel,
@@ -516,6 +517,59 @@ describe('aralab model alias (patch 10b)', () => {
       expect(findLeaks(aliasPayload(messagesSlice, map))).toEqual([]);
       /* content untouched */
       expect(aliasPayload(messagesSlice, map)[0].content).toEqual(messagesSlice[0].content);
+    });
+  });
+
+  describe('kill switch ARALAB_MODEL_ALIAS', () => {
+    const saved = process.env.ARALAB_MODEL_ALIAS;
+    afterEach(() => {
+      if (saved === undefined) {
+        delete process.env.ARALAB_MODEL_ALIAS;
+      } else {
+        process.env.ARALAB_MODEL_ALIAS = saved;
+      }
+    });
+
+    it('is on when unset or set to anything but an off value', () => {
+      expect(isModelAliasEnabled({})).toBe(true);
+      for (const v of ['true', 'on', '1', 'yes', '', 'glm']) {
+        expect(isModelAliasEnabled({ ARALAB_MODEL_ALIAS: v })).toBe(true);
+      }
+    });
+
+    it('is off for false/off/0/no/disable(d), any case, surrounding spaces', () => {
+      for (const v of ['false', 'FALSE', ' off ', '0', 'no', 'Disable', 'disabled']) {
+        expect(isModelAliasEnabled({ ARALAB_MODEL_ALIAS: v })).toBe(false);
+      }
+    });
+
+    it('off: the four outbound helpers return their input unchanged', () => {
+      const map = buildModelAliasMap(appConfig);
+      process.env.ARALAB_MODEL_ALIAS = 'false';
+      const body = {
+        model: GLM,
+        endpoints: { custom: [{ baseURL: 'https://openrouter.ai/api/v1' }] },
+      };
+      expect(aliasPayload(body, map)).toBe(body);
+      const err = `No endpoints found for ${GLM} via https://openrouter.ai/api/v1`;
+      expect(sanitizeUpstreamError(err, map)).toBe(err);
+      const frame = `data: ${JSON.stringify({ model: GLM })}\n\n`;
+      expect(aliasSseChunk(frame, map)).toBe(frame);
+      const text = JSON.stringify({ model: GLM });
+      expect(aliasJsonText(text, map)).toBe(text);
+    });
+
+    it('off: the request side still resolves labels to real ids', () => {
+      const map = buildModelAliasMap(appConfig);
+      process.env.ARALAB_MODEL_ALIAS = 'off';
+      expect(resolveAliasedModel('Aralab GPT', 'Aralab GPT', map)).toBe(GLM);
+    });
+
+    it('on (unset): aliasing still happens (positive control for the off cases)', () => {
+      const map = buildModelAliasMap(appConfig);
+      delete process.env.ARALAB_MODEL_ALIAS;
+      expect(aliasPayload({ model: GLM }, map)).toEqual({ model: 'Aralab GPT' });
+      expect(sanitizeUpstreamError(`model ${GLM} failed`, map)).not.toMatch(LEAK);
     });
   });
 });

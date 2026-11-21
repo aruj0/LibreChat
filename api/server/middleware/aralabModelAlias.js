@@ -21,7 +21,17 @@ const {
   aliasJsonText,
   getModelAliasMap,
   resolveAliasedBody,
+  isModelAliasEnabled,
 } = require('@librechat/api');
+
+/* Kill switch (ARALAB_MODEL_ALIAS=false): the helpers above return their input unchanged, so
+ * outbound payloads carry the real ids; request-side resolution below stays on. Say so loudly
+ * at boot, since vendor names then reach users. */
+if (!isModelAliasEnabled()) {
+  logger.warn(
+    '[aralab/modelAlias] Response aliasing DISABLED by ARALAB_MODEL_ALIAS: model ids and upstream names reach users',
+  );
+}
 
 const ADMIN_PATH = /^\/api\/admin(?:[/?#]|$)/;
 

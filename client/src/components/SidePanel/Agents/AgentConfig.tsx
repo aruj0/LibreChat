@@ -1,21 +1,19 @@
-import { Input, Label, TooltipAnchor } from '@librechat/client';
+import { Input, Label } from '@librechat/client';
 import { Controller, useWatch, useFormContext } from 'react-hook-form';
 import type { ReactNode } from 'react';
 import type { InstructionsPromptStatus } from './Instructions';
 import type { AgentForm } from '~/common';
-import { ResolvedProviderIcon } from '~/components/Endpoints/ResolvedProviderIcon';
 import AgentCategorySelector from './AgentCategorySelector';
 import { useLocalize, useAgentCapabilities } from '~/hooks';
+import AralabModelPicker from './AralabModelPicker';
 import { useAgentFileEntries } from './Tools/hooks';
 import { useAgentPanelContext } from '~/Providers';
-import { useProviderIcon } from '~/hooks/Endpoint';
 import ToolsSection from './Tools/ToolsSection';
 import { validateEmail, cn } from '~/utils';
 import Instructions from './Instructions';
 import FileContext from './FileContext';
 import AgentAvatar from './AgentAvatar';
 import Starters from './Starters';
-import { Panel } from '~/common';
 
 const fieldClass = 'h-9';
 
@@ -31,52 +29,16 @@ export default function AgentConfig({
 }) {
   const localize = useLocalize();
   const methods = useFormContext<AgentForm>();
-  const { setActivePanel, endpointsConfig, agentsConfig } = useAgentPanelContext();
+  const { agentsConfig } = useAgentPanelContext();
   const { contextEnabled } = useAgentCapabilities(agentsConfig?.capabilities);
 
   const {
     control,
     formState: { errors },
   } = methods;
-  const provider = useWatch({ control, name: 'provider' });
-  const model = useWatch({ control, name: 'model' });
   const agent = useWatch({ control, name: 'agent' });
   const agent_id = useWatch({ control, name: 'id' });
   const { contextFiles } = useAgentFileEntries();
-
-  const providerValue = typeof provider === 'string' ? provider : provider?.value;
-  const { provider: providerId, imageURL } = useProviderIcon({
-    endpoint: providerValue as string,
-    endpointsConfig,
-  });
-
-  const modelButton = (
-    <button
-      id="provider"
-      type="button"
-      onClick={() => setActivePanel(Panel.model)}
-      className={cn(
-        'border-border-control bg-surface-secondary text-text-primary hover:bg-surface-tertiary focus-visible:ring-ring-primary relative flex h-9 w-full min-w-0 items-center overflow-hidden rounded-lg border text-sm font-medium transition-colors focus:outline-hidden focus-visible:ring-2',
-        model != null && model ? 'px-1' : 'px-3',
-      )}
-    >
-      <div className="flex w-full min-w-0 items-center gap-2">
-        {providerValue !== undefined && (
-          <div className="avatar-stroke bg-surface-primary text-text-primary relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
-            <ResolvedProviderIcon
-              provider={providerId}
-              imageURL={imageURL}
-              size={16}
-              className="h-2/3 w-2/3"
-            />
-          </div>
-        )}
-        <span className="truncate">
-          {model != null && model ? model : localize('com_ui_select_model')}
-        </span>
-      </div>
-    </button>
-  );
 
   return (
     <div className="h-auto pt-1">
@@ -145,7 +107,7 @@ export default function AgentConfig({
           >
             {localize('com_ui_model')} <span className="text-text-destructive">*</span>
           </Label>
-          {model ? <TooltipAnchor description={model} render={modelButton} /> : modelButton}
+          <AralabModelPicker />
         </div>
         <div className="flex flex-col">
           <Label

@@ -1121,4 +1121,29 @@ describe('retained code destination', () => {
     expect(hasToolResourceDestination(file, EToolResources.execute_code)).toBe(true);
     expect(hasToolResourceDestination(file, EToolResources.file_search)).toBe(false);
   });
+
+  it('accepts a none-routed message attachment no tool can read', () => {
+    expect(
+      resolveUploadDestination({
+        deliveryPath: 'none',
+        mimeType: 'application/vnd.aralab.d90',
+        agentTools: ['file_search'],
+        hasAgent: true,
+        isMessageAttachment: true,
+        allowUnknownMessageConsumer: true,
+      }),
+    ).toEqual({});
+  });
+
+  it('refuses the same file as a permanent agent file', () => {
+    expect(
+      resolveUploadDestination({
+        deliveryPath: 'none',
+        mimeType: 'application/vnd.aralab.d90',
+        agentTools: ['file_search'],
+        hasAgent: true,
+        isMessageAttachment: false,
+      }),
+    ).toEqual({ rejection: 'no-agent-resource' });
+  });
 });

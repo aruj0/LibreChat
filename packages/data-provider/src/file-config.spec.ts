@@ -138,6 +138,32 @@ describe('inferMimeType', () => {
     expect(baseFileConfig.checkType(inferMimeType('legacy.doc', ''))).toBe(true);
     expect(baseFileConfig.checkType(inferMimeType('template.potx', ''))).toBe(true);
   });
+
+  it('gives chamber controller logs their own type (Aralab patch 12)', () => {
+    expect(inferMimeType('2026-02-27_calib.d90', '')).toBe('application/vnd.aralab.d90');
+    expect(inferMimeType('LOG.D91', '')).toBe('application/vnd.aralab.d91');
+    expect(inferMimeType('calib.d90', 'application/octet-stream')).toBe(
+      'application/vnd.aralab.d90',
+    );
+  });
+
+  it('leaves any other reported type for those extensions untouched', () => {
+    expect(inferMimeType('calib.d90', 'text/plain')).toBe('text/plain');
+  });
+
+  it('does not read inherited properties as log types', () => {
+    expect(inferMimeType('x.constructor', 'application/octet-stream')).toBe(
+      'application/octet-stream',
+    );
+    expect(inferMimeType('x.__proto__', 'application/octet-stream')).toBe(
+      'application/octet-stream',
+    );
+  });
+
+  it('does not touch other octet-stream or unknown files', () => {
+    expect(inferMimeType('file.bin', 'application/octet-stream')).toBe('application/octet-stream');
+    expect(inferMimeType('file.xyz', '')).toBe('');
+  });
 });
 
 describe('applicationMimeTypes', () => {

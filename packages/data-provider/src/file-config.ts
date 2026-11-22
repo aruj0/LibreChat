@@ -527,6 +527,12 @@ export const mimeTypeAliases: Readonly<Record<string, string>> = {
   'text/x-shellscript': 'application/x-sh',
 };
 
+/** Aralab patch 12: vendor types for chamber controller logs (no registered MIME type exists) */
+export const aralabLogTypes: Readonly<Record<string, string>> = {
+  d90: 'application/vnd.aralab.d90',
+  d91: 'application/vnd.aralab.d91',
+};
+
 /**
  * Infers the MIME type from a file's extension when the browser doesn't recognize it,
  * and normalizes known non-standard MIME type aliases to their canonical forms.
@@ -535,11 +541,20 @@ export const mimeTypeAliases: Readonly<Record<string, string>> = {
  * @returns The normalized or inferred MIME type; empty string if unresolvable
  */
 export function inferMimeType(fileName: string, currentType: string): string {
+  const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
+
+  /* Aralab patch 12: browsers report no type for .d90/.d91 */
+  if (
+    (!currentType || currentType === 'application/octet-stream') &&
+    Object.prototype.hasOwnProperty.call(aralabLogTypes, extension)
+  ) {
+    return aralabLogTypes[extension];
+  }
+
   if (currentType) {
     return mimeTypeAliases[currentType] ?? currentType;
   }
 
-  const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
   return codeTypeMapping[extension] || imageTypeMapping[extension] || currentType;
 }
 

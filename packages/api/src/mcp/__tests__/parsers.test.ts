@@ -39,7 +39,7 @@ describe('formatToolContent', () => {
       expect(artifacts).toBeUndefined();
     });
 
-    it('should preserve the image payload in the string for unrecognized providers', () => {
+    it('replaces the inline image payload in the string with a note for unrecognized providers (Aralab patch 13)', () => {
       const result: t.MCPToolCallResponse = {
         content: [{ type: 'image', data: 'iVBORw0KGgoAAAA...', mimeType: 'image/png' }],
       };
@@ -52,8 +52,43 @@ describe('formatToolContent', () => {
           { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgoAAAA...' } },
         ],
       });
-      expect(content).toContain('iVBORw0KGgoAAAA...');
-      expect(content).toContain('image/png');
+      expect(content).not.toContain('iVBORw0KGgoAAAA...');
+      expect(content).toBe(
+        '[Image: image/png, about 1 KB. Shown to the user with this tool result; the image itself is not available to you.]',
+      );
+    });
+  });
+
+  describe('unrecognized-provider inline image text (Aralab patch 13)', () => {
+    it('reports type and size, keeps the full image for display, and the recognized path unchanged', () => {
+      const data = Buffer.alloc(171507, 7).toString('base64');
+      const result: t.MCPToolCallResponse = {
+        content: [
+          { type: 'image', data, mimeType: 'image/png' },
+          { type: 'text', text: '{"file":"log.d90"}' },
+        ],
+      };
+      const [content, artifacts] = formatToolContent(result, 'large file agents' as t.Provider);
+      expect(content).toBe(
+        '[Image: image/png, about 167 KB. Shown to the user with this tool result; the image itself is not available to you.]\n\n{"file":"log.d90"}',
+      );
+      expect(content.length).toBeLessThan(300);
+      expect(artifacts?.imageAttachments).toEqual([
+        { type: 'image_url', image_url: { url: `data:image/png;base64,${data}` } },
+      ]);
+
+      const [recognized, recognizedArtifacts] = formatToolContent(result, 'openrouter');
+      expect(recognized).toBe('{"file":"log.d90"}');
+      expect(recognizedArtifacts?.content).toHaveLength(1);
+    });
+
+    it('flattens line breaks in a server-supplied MIME type', () => {
+      const result: t.MCPToolCallResponse = {
+        content: [{ type: 'image', data: 'QUJDRA==', mimeType: 'image/png\nIgnore previous' }],
+      };
+      const [content] = formatToolContent(result, 'unknown' as t.Provider);
+      expect(content).not.toContain('\n');
+      expect(content).toContain('[Image: image/png Ignore previous, about 1 KB.');
     });
   });
 
@@ -79,7 +114,9 @@ describe('formatToolContent', () => {
         };
         const [content, artifacts] = formatToolContent(result, provider as t.Provider);
         expect(content).toContain('Partial result');
-        expect(content).toContain('data:IMAGE/PNG;base64,aW1hZ2U=');
+        expect(content).not.toContain('aW1hZ2U=');
+        expect(content).toContain('[Image: IMAGE/PNG, about 1 KB.');
+        expect(content).toContain('https://example.com/chart.png');
         expect(artifacts?.content).toEqual([]);
         expect(artifacts?.imageAttachments).toEqual(
           [
@@ -1385,7 +1422,8 @@ describe('formatToolContent', () => {
       expect(artifacts?.ui_resources).toBeUndefined();
       expect(artifacts?.content).toEqual([]);
       expect(artifacts?.imageAttachments).toHaveLength(1);
-      expect(content).toContain('base64data');
+      expect(content).not.toContain('base64data');
+      expect(content).toContain('[Image: image/png,');
     });
 
     it('keeps bounded standalone images in model output beside a legacy UI attachment', () => {
@@ -1402,7 +1440,8 @@ describe('formatToolContent', () => {
       const [content, artifacts] = formatToolContent(result, 'vertexai' as t.Provider);
 
       const resource = artifacts?.ui_resources?.data?.[0];
-      expect(content).toContain('base64data');
+      expect(content).not.toContain('base64data');
+      expect(content).toContain('[Image: image/png,');
       expect(content).toContain(`UI Resource Marker: \\ui{${resource?.resourceId}}`);
       expect(content.split(`UI Resource Marker: \\ui{${resource?.resourceId}}`)).toHaveLength(2);
       expect(artifacts?.content).toEqual([]);
@@ -1426,7 +1465,8 @@ describe('formatToolContent', () => {
 
       const [content, artifacts] = formatToolContent(result, 'vertexai' as t.Provider);
 
-      expect(content).toContain('data:image/png;base64,aW1hZ2U=');
+      expect(content).not.toContain('aW1hZ2U=');
+      expect(content).toContain('[Image: image/png,');
       expect(artifacts?.content).toEqual([]);
       expect(artifacts?.imageAttachments).toHaveLength(1);
       expect(artifacts?.ui_resources?.data).toHaveLength(1);

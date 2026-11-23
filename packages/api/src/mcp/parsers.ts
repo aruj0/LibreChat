@@ -224,6 +224,17 @@ function describeBinaryResource(bytes: number): string {
   return `Resource Content: ${bytes} bytes of binary data (omitted; not UTF-8 text)`;
 }
 
+/**
+ * Aralab patch 13. The model-facing text for inline (base64) image data on an unrecognized
+ * provider. Such a provider never receives vision input and the user sees the image through
+ * `imageAttachments`, so the base64 payload in the text only costs input tokens (a 1600x800
+ * PNG chart is ~158k tokens) and is replayed with the stored tool output on every later turn.
+ */
+function describeInlineImage(image: t.ImageContent): string {
+  const kb = Math.max(1, Math.round(estimateBase64ImageBytes(image.data) / 1024));
+  return `[Image: ${flattenMetadata(image.mimeType ?? 'unknown type')}, about ${kb} KB. Shown to the user with this tool result; the image itself is not available to you.]`;
+}
+
 function describeResourceLink(item: t.ResourceLink): string[] {
   const lines: string[] = [];
   if (item.name) {
@@ -270,7 +281,7 @@ function parseAsString(result: t.MCPToolCallResponse): string {
             resourceText.push(body.text);
           } else if (body.image) {
             assertImageDataWithinLimit(body.image);
-            resourceText.push(`data:${body.image.mimeType};base64,${body.image.data}`);
+            resourceText.push(describeInlineImage(body.image));
           } else if (body.binaryBytes != null) {
             resourceText.push(describeBinaryResource(body.binaryBytes));
           }
@@ -285,6 +296,9 @@ function parseAsString(result: t.MCPToolCallResponse): string {
       }
       if (isImageContent(item)) {
         assertImageDataWithinLimit(item);
+        if (!isRemoteImageUrl(item.data)) {
+          return describeInlineImage(item);
+        }
       }
       return JSON.stringify(item, null, 2);
     })

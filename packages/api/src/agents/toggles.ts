@@ -27,6 +27,7 @@ import { synthesizeDeferralToolOptions } from '~/agents/deferral';
 import { mergeSynthesizedToolOptions } from '~/agents/selection';
 import { synthesizeIntentToolOptions } from '~/agents/intent';
 import { filterChatSelectableMCPServers } from '~/mcp/utils';
+import { isAralabCodeBySpec } from '~/aralab/codeEndpoints';
 
 /** Tool id equipped for each spec-configurable capability. */
 const TOOL_NAMES: Record<string, string> = {
@@ -58,7 +59,15 @@ export function resolveEphemeralTools(
   modelSpec: SpecToolSource | null | undefined,
 ): string[] {
   const tools: string[] = [];
+  /** Aralab patch 14: code follows the model spec only; the request's toggle is ignored. */
+  const codeBySpec = isAralabCodeBySpec();
   for (const [toggleKey, specKey] of SPEC_TOOL_TOGGLES) {
+    if (codeBySpec && toggleKey === 'execute_code') {
+      if (modelSpec?.executeCode === true) {
+        tools.push(TOOL_NAMES[toggleKey]);
+      }
+      continue;
+    }
     if (resolveSpecToolFlag(ephemeralAgent?.[toggleKey], modelSpec?.[specKey])) {
       tools.push(TOOL_NAMES[toggleKey]);
     }

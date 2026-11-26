@@ -4062,6 +4062,8 @@ export type TStartupConfig = {
   /** Aralab patch 10c: providers the Agent Builder offers this user (empty = unrestricted).
    *  A builder-only list; `endpoints.agents.allowedProviders` still governs the runtime. */
   aralabBuilderProviders?: string[];
+  /** Aralab patch 14: code follows the model spec; the client shows no Run Code toggle. */
+  aralabCodeBySpec?: boolean;
   customFooter?: string;
   modelSpecs?: TSpecsConfig;
   projects?: TChatProjectsConfig;

@@ -37,8 +37,8 @@ import {
 } from '~/hooks';
 import { getStatusColor, getStatusTextKey } from '~/components/MCP/mcpServerUtils';
 import { filterSkillsForPopover } from '~/components/Chat/Input/SkillsCommand';
+import { useSkillsInfiniteQuery, useGetStartupConfig } from '~/data-provider';
 import { useAgentsMapContext, useBadgeRowContext } from '~/Providers';
-import { useSkillsInfiniteQuery } from '~/data-provider';
 import { ephemeralAgentByConvoId } from '~/store';
 import { favoriteKey } from './useToolFavorites';
 import useLocalize from '~/hooks/useLocalize';
@@ -192,10 +192,13 @@ export default function usePaletteEntries({
     permissionType: PermissionTypes.WEB_SEARCH,
     permission: Permissions.USE,
   });
-  const canRunCode = useHasAccess({
+  const canRunCodePermission = useHasAccess({
     permissionType: PermissionTypes.RUN_CODE,
     permission: Permissions.USE,
   });
+  /** Aralab patch 14: no Run Code toggle; the model spec decides where code runs. */
+  const { data: startupConfig } = useGetStartupConfig();
+  const canRunCode = canRunCodePermission && startupConfig?.aralabCodeBySpec !== true;
   const canUseFileSearch = useHasAccess({
     permissionType: PermissionTypes.FILE_SEARCH,
     permission: Permissions.USE,

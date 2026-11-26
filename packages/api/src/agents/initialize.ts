@@ -131,6 +131,7 @@ import { createConfiguredContentInspector, inspectContent } from '../protection/
 import { assertAgentAttachmentLimits, isModelBoundAttachmentFile } from './attachments';
 import { assertModelBoundContent } from '../middleware/modelBoundContent';
 import { resolveAttachedWorkspaceReadFileLines } from '~/code/workspace';
+import { isAralabCodeAllowedForProvider } from '~/aralab/codeEndpoints';
 import { isValidInstructionsPromptLink } from './instructions/linked';
 import { PARTIAL_RESOLVED_CONVERSATION } from './conversationSymbols';
 import { registerMemoryTools, memoryToolUsageGuard } from './memory';
@@ -1431,6 +1432,10 @@ export async function initializeAgent(
     throw new Error(
       `{ "type": "${ErrorTypes.INVALID_AGENT_PROVIDER}", "info": "${agent.provider}" }`,
     );
+  }
+  /** Aralab patch 14: only agents on the listed endpoints get a code environment. */
+  if (params.codeEnvAvailable === true && !isAralabCodeAllowedForProvider(agent.provider)) {
+    params = { ...params, codeEnvAvailable: false };
   }
 
   /**

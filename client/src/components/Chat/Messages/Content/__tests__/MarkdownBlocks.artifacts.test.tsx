@@ -19,6 +19,11 @@ beforeAll(() => loadRehypeModules());
  * indexing assigns artifacts the same indices the whole-message renderer did —
  * the index used by artifact edit/update calls.
  */
+/** Aralab patch 14: the code renderer reads the startup config, which needs the app's providers. */
+jest.mock('~/data-provider', () => ({
+  ...jest.requireActual('~/data-provider'),
+  useGetStartupConfig: () => ({ data: {} }),
+}));
 jest.mock('~/components/Artifacts/ArtifactButton', () => ({
   __esModule: true,
   default: ({

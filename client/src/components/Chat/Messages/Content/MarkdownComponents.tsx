@@ -10,10 +10,10 @@ import {
 } from '~/utils';
 import Mermaid, { MermaidErrorBoundary } from '~/components/Messages/Content/Mermaid';
 import { useMessagePartsHost } from '~/Providers/MessagePartsHostContext';
+import { useFileDownload, useGetStartupConfig } from '~/data-provider';
 import { useCodeBlockContext, useMediaContext } from '~/Providers';
 import CodeBlock from '~/components/Messages/Content/CodeBlock';
 import useHasAccess from '~/hooks/Roles/useHasAccess';
-import { useFileDownload } from '~/data-provider';
 import { useLocalize } from '~/hooks';
 
 type TCodeProps = {
@@ -36,10 +36,13 @@ export const code: React.ElementType = memo(function MarkdownCode({
   className,
   children,
 }: TCodeProps) {
-  const canRunCode = useHasAccess({
+  const canRunCodePermission = useHasAccess({
     permissionType: PermissionTypes.RUN_CODE,
     permission: Permissions.USE,
   });
+  /** Aralab patch 14: code blocks get no Run button; code runs only inside the models that work with files. */
+  const { data: startupConfig } = useGetStartupConfig();
+  const canRunCode = canRunCodePermission && startupConfig?.aralabCodeBySpec !== true;
   const match = /language-(\w+)/.exec(className ?? '');
   const lang = match && match[1];
   const isMath = lang === 'math';

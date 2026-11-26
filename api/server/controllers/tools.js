@@ -7,6 +7,7 @@ const {
   isContentFilterError,
   isActiveExpirationDate,
   getConversationExpirationDate,
+  isAralabCodeBySpec,
 } = require('@librechat/api');
 const {
   Tools,
@@ -108,6 +109,12 @@ const verifyToolAuth = async (req, res) => {
  * @returns {Promise<void>} A promise that resolves when the function has completed.
  */
 const callTool = async (req, res) => {
+  /** Aralab patch 14: with code tied to model specs, code blocks are never run directly. */
+  if (req.params?.toolId === Tools.execute_code && isAralabCodeBySpec()) {
+    return res
+      .status(403)
+      .json({ message: 'Code runs only inside the models that work with files.' });
+  }
   try {
     const appConfig = req.config;
     const { toolId = '' } = req.params;

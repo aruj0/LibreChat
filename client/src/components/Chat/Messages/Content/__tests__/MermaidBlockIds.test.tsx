@@ -12,6 +12,11 @@ beforeAll(() => loadRehypeModules());
  * their own sequence every diagram in a message received the same `mermaid-N`
  * id and therefore the same Recoil artifact key.
  */
+/** Aralab patch 14: the code renderer reads the startup config, which needs the app's providers. */
+jest.mock('~/data-provider', () => ({
+  ...jest.requireActual('~/data-provider'),
+  useGetStartupConfig: () => ({ data: {} }),
+}));
 jest.mock('~/components/Messages/Content/Mermaid', () => ({
   __esModule: true,
   default: ({ id, children }: { id?: string; children: string }) => (

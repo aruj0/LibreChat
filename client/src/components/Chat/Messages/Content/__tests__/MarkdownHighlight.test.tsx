@@ -14,6 +14,12 @@ import Markdown from '../Markdown';
 /** KaTeX and highlight.js load on first need in the app; load them up front here. */
 beforeAll(() => loadRehypeModules());
 
+/** Aralab patch 14: the code renderer reads the startup config, which needs the app's providers. */
+jest.mock('~/data-provider', () => ({
+  ...jest.requireActual('~/data-provider'),
+  useGetStartupConfig: () => ({ data: {} }),
+}));
+
 jest.mock('~/components/Messages/Content/CodeBlock', () => ({
   __esModule: true,
   default: ({ lang, codeChildren }: { lang: string; codeChildren: React.ReactNode }) => (

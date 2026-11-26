@@ -44,7 +44,9 @@ jest.mock('~/Providers', () => ({
   useAgentsMapContext: () => mockAgentsMap,
 }));
 
+let mockStartupConfig: { aralabCodeBySpec?: boolean } = {};
 jest.mock('~/data-provider', () => ({
+  useGetStartupConfig: () => ({ data: mockStartupConfig }),
   useSkillsInfiniteQuery: (_params: unknown, options?: { enabled?: boolean }) => {
     mockSkillsQueryEnabled = options?.enabled;
     return mockSkillsQuery;
@@ -262,6 +264,17 @@ describe('usePaletteEntries', () => {
     ])('withholds %s without the capability', (capability, key) => {
       mockCapabilities = { ...allCapabilities, [capability]: false };
       expect(keysOf(entries().result)).not.toContain(key);
+    });
+
+    it('withholds Run Code when code follows the model spec (Aralab patch 14)', () => {
+      mockStartupConfig = { aralabCodeBySpec: true };
+      try {
+        const keys = keysOf(entries().result);
+        expect(keys).not.toContain('builtin:execute_code');
+        expect(keys).toContain('builtin:web_search');
+      } finally {
+        mockStartupConfig = {};
+      }
     });
 
     it('withholds memory without access, whatever the capability says', () => {

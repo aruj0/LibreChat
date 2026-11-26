@@ -29,6 +29,7 @@ const {
   resolvePreLoginAppConfig,
   withSafePolicyLinks,
   resolveBuilderProviders,
+  isAralabCodeBySpec,
 } = require('@librechat/api');
 const {
   DEFAULT_MCP_APP_CSP_LIMITS,
@@ -376,6 +377,8 @@ router.get('/', async function (req, res) {
       fileUploadSseEnabled: isEnabled(process.env.FILE_UPLOAD_SSE_ENABLED),
       endpointsDropParamsMap: endpointsDropParamsMap,
       aralabBuilderProviders,
+      /** Aralab patch 14: no Run Code toggle; the model spec decides. */
+      aralabCodeBySpec: isAralabCodeBySpec(),
     };
 
     const webSearch = buildWebSearchConfig(appConfig);

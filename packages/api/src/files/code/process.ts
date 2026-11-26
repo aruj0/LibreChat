@@ -21,6 +21,7 @@ import type { extractCodeArtifactText } from './extract';
 import type { logAxiosError } from '~/utils/axios';
 import type { ServerRequest } from '~/types';
 import { withFileProvisioning, FileProvisionPersistenceError } from '../operations';
+import { aralabHeldBackReason } from '~/aralab/returnedFiles';
 import { createCodeOutputPersistence } from './publication';
 
 export type CodeOutputProcessorInput = Omit<
@@ -151,6 +152,12 @@ export async function processCodeOutput(
     logger,
   }: CodeOutputProcessorDeps,
 ): Promise<CodeOutputResult | null> {
+  /** Aralab patch 16: only finished files reach the user. */
+  const heldBack = aralabHeldBackReason(name);
+  if (heldBack != null) {
+    logger.debug(`[processCodeOutput] Aralab: "${name}" stays in the sandbox (${heldBack})`);
+    return null;
+  }
   const appConfig = req.config;
   const currentDate = new Date();
   const fileExt = path.extname(name).toLowerCase();

@@ -127,6 +127,7 @@ export * from './aralab/modelAlias';
 export * from './aralab/builderProviders';
 export * from './aralab/codeEndpoints';
 export * from './aralab/encrypted';
+export * from './aralab/returnedFiles';
 /* Traces */
 export * from './traces';
 /* Insights */

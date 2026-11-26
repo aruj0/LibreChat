@@ -7,6 +7,7 @@ const {
   resolveModelSpecSkillIds,
   loadAddedAgent: loadAddedAgentFn,
   hasEntityEmbeddings,
+  resolveAralabSkillsToggle,
 } = require('@librechat/api');
 const {
   isEphemeralAgentId,
@@ -159,7 +160,10 @@ const processAddedConvo = async ({
        *  added conversation's own toggle overrides (`false` stays a hard opt-out). */
       const specSkillsEnabled = resolveSpecSkillsEnabled(
         resolveSpecUserToggle(
-          addedConvo.ephemeralAgent?.skills ?? req.body?.ephemeralAgent?.skills,
+          resolveAralabSkillsToggle(
+            addedConvo.ephemeralAgent?.skills ?? req.body?.ephemeralAgent?.skills,
+            selectedModelSpec,
+          ),
           selectedModelSpec,
           'skills',
         ),

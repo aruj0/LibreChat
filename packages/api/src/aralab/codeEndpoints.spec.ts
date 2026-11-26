@@ -1,7 +1,11 @@
+import { resolveSpecSkillsEnabled } from 'librechat-data-provider';
 import {
   getAralabCodeEndpoints,
   isAralabCodeBySpec,
   isAralabCodeAllowedForProvider,
+  isAralabSkillsFixedBySpec,
+  resolveAralabSkillsToggle,
+  getAralabFixedSkillSpecs,
 } from './codeEndpoints';
 import { resolveEphemeralTools } from '../agents/toggles';
 
@@ -55,5 +59,42 @@ describe('Aralab patch 14: code only where a model spec turns it on', () => {
     expect(resolveEphemeralTools({ web_search: true }, { webSearch: false })).toContain(
       'web_search',
     );
+  });
+});
+
+describe('Aralab patch 14: the Office spec keeps its skills', () => {
+  const env = { ARALAB_CODE_ENDPOINTS: ALT };
+  const altSpec = {
+    name: 'aralab-alternative-thinker',
+    skills: ['aralab-word', 'aralab-excel', 'aralab-powerpoint'],
+    preset: { endpoint: ALT },
+  };
+  const fastSpec = { name: 'aralab-fast', preset: { endpoint: 'Aralab GPT' } };
+  const otherWithSkills = { name: 'x', skills: true, preset: { endpoint: 'Aralab GPT' } };
+
+  it('fixes skills only for a spec on a listed endpoint that names them', () => {
+    expect(isAralabSkillsFixedBySpec(altSpec, env)).toBe(true);
+    expect(isAralabSkillsFixedBySpec(fastSpec, env)).toBe(false);
+    expect(isAralabSkillsFixedBySpec(otherWithSkills, env)).toBe(false);
+    expect(isAralabSkillsFixedBySpec({ name: 'y', preset: { endpoint: ALT } }, env)).toBe(false);
+    expect(isAralabSkillsFixedBySpec(altSpec, {})).toBe(false);
+    expect(isAralabSkillsFixedBySpec(null, env)).toBe(false);
+  });
+
+  it('drops the user toggle there and nowhere else', () => {
+    expect(resolveAralabSkillsToggle(false, altSpec, env)).toBeUndefined();
+    expect(resolveAralabSkillsToggle(false, fastSpec, env)).toBe(false);
+    expect(resolveAralabSkillsToggle(false, altSpec, {})).toBe(false);
+    expect(
+      resolveSpecSkillsEnabled(resolveAralabSkillsToggle(false, altSpec, env), altSpec.skills),
+    ).toBe(true);
+  });
+
+  it('lists the fixed specs for the client', () => {
+    expect(getAralabFixedSkillSpecs([altSpec, fastSpec, otherWithSkills], env)).toEqual([
+      'aralab-alternative-thinker',
+    ]);
+    expect(getAralabFixedSkillSpecs(undefined, env)).toEqual([]);
+    expect(getAralabFixedSkillSpecs([altSpec], {})).toEqual([]);
   });
 });

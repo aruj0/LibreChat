@@ -258,6 +258,7 @@ function Bar({
     catalogEnabled: catalogWanted,
     catalogOpenRevision,
     favoriteKeys: favorites.keys,
+    specName: conversation?.spec,
   });
 
   /* Servers with required variables open this before they can be selected; it

@@ -26,6 +26,7 @@ import {
 } from '~/agents/toggles';
 import { requiresEphemeralUserConnection, validateMCPServerConfig } from '~/mcp/utils';
 import { resolveMCPClientCapabilityProfile } from '~/mcp/capabilities';
+import { resolveAralabSkillsToggle } from '~/aralab/codeEndpoints';
 import { getLookupConcurrency } from '~/utils/concurrency';
 import { getCustomEndpointConfig } from '~/app/config';
 import { mapWithConcurrency } from '~/utils/promise';
@@ -191,7 +192,10 @@ export async function loadEphemeralAgent(
     result.subagents = modelSpec.subagents;
   }
   if (modelSpec && Object.prototype.hasOwnProperty.call(modelSpec, 'skills')) {
-    const skillsEnabled = resolveSpecSkillsEnabled(ephemeralAgent?.skills, modelSpec.skills);
+    const skillsEnabled = resolveSpecSkillsEnabled(
+      resolveAralabSkillsToggle(ephemeralAgent?.skills, modelSpec),
+      modelSpec.skills,
+    );
     result.skills_enabled = skillsEnabled;
     if (!skillsEnabled || Array.isArray(modelSpec.skills)) {
       result.skills = [];

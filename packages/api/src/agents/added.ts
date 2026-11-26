@@ -22,6 +22,7 @@ import {
 } from '~/agents/toggles';
 import { requiresEphemeralUserConnection, validateMCPServerConfig } from '~/mcp/utils';
 import { resolveMCPClientCapabilityProfile } from '~/mcp/capabilities';
+import { resolveAralabSkillsToggle } from '~/aralab/codeEndpoints';
 import { getLookupConcurrency } from '~/utils/concurrency';
 import { getCustomEndpointConfig } from '~/app/config';
 import { mapWithConcurrency } from '~/utils/promise';
@@ -190,7 +191,11 @@ export async function loadAddedAgent(
       model,
       tools: [...primaryAgent.tools],
     };
-    applyModelSpecSkills(result, modelSpec, ephemeralAgent?.skills);
+    applyModelSpecSkills(
+      result,
+      modelSpec,
+      resolveAralabSkillsToggle(ephemeralAgent?.skills, modelSpec),
+    );
     applyModelSpecSubagents(result, modelSpec);
     const mirroredArtifacts = resolveSpecArtifacts(ephemeralAgent?.artifacts, modelSpec?.artifacts);
     if (mirroredArtifacts != null) {
@@ -292,7 +297,11 @@ export async function loadAddedAgent(
     result.artifacts = artifacts;
   }
   applyModelSpecSubagents(result, modelSpec);
-  applyModelSpecSkills(result, modelSpec, ephemeralAgent?.skills);
+  applyModelSpecSkills(
+    result,
+    modelSpec,
+    resolveAralabSkillsToggle(ephemeralAgent?.skills, modelSpec),
+  );
 
   const toggleToolOptions = synthesizeToggleToolOptions({ ephemeralAgent, modelSpec });
   if (toggleToolOptions) {

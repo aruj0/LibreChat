@@ -4064,6 +4064,8 @@ export type TStartupConfig = {
   aralabBuilderProviders?: string[];
   /** Aralab patch 14: code follows the model spec; the client shows no Run Code toggle. */
   aralabCodeBySpec?: boolean;
+  /** Aralab patch 14: specs whose skills are fixed; the client hides their Skills toggle. */
+  aralabFixedSkillSpecs?: string[];
   customFooter?: string;
   modelSpecs?: TSpecsConfig;
   projects?: TChatProjectsConfig;

@@ -152,8 +152,11 @@ export default function usePaletteEntries({
   catalogEnabled = true,
   catalogOpenRevision = 0,
   favoriteKeys,
+  specName,
 }: {
   conversationId: string;
+  /** The active model spec, if any (Aralab patch 14: its skills may be fixed). */
+  specName?: string | null;
   agentId?: string | null;
   /** Endpoints without a tool row discard these, so there is nothing to fetch
    *  or build for them. */
@@ -199,6 +202,9 @@ export default function usePaletteEntries({
   /** Aralab patch 14: no Run Code toggle; the model spec decides where code runs. */
   const { data: startupConfig } = useGetStartupConfig();
   const canRunCode = canRunCodePermission && startupConfig?.aralabCodeBySpec !== true;
+  /** Aralab patch 14: a spec whose skills are fixed shows no Skills toggle. */
+  const skillsFixed =
+    specName != null && startupConfig?.aralabFixedSkillSpecs?.includes(specName) === true;
   const canUseFileSearch = useHasAccess({
     permissionType: PermissionTypes.FILE_SEARCH,
     permission: Permissions.USE,
@@ -363,7 +369,7 @@ export default function usePaletteEntries({
       );
     }
 
-    if (toolsEnabled && skillsListable) {
+    if (toolsEnabled && skillsListable && !skillsFixed) {
       pushTool(
         'skills',
         localize('com_ui_skills'),
@@ -624,6 +630,7 @@ export default function usePaletteEntries({
     memoryEnabled,
     agentSkillIds,
     skillsListable,
+    skillsFixed,
     canUseWebSearch,
     webSearchEnabled,
     artifactsEnabled,

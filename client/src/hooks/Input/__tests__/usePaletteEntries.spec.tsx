@@ -44,7 +44,7 @@ jest.mock('~/Providers', () => ({
   useAgentsMapContext: () => mockAgentsMap,
 }));
 
-let mockStartupConfig: { aralabCodeBySpec?: boolean } = {};
+let mockStartupConfig: { aralabCodeBySpec?: boolean; aralabFixedSkillSpecs?: string[] } = {};
 jest.mock('~/data-provider', () => ({
   useGetStartupConfig: () => ({ data: mockStartupConfig }),
   useSkillsInfiniteQuery: (_params: unknown, options?: { enabled?: boolean }) => {
@@ -272,6 +272,23 @@ describe('usePaletteEntries', () => {
         const keys = keysOf(entries().result);
         expect(keys).not.toContain('builtin:execute_code');
         expect(keys).toContain('builtin:web_search');
+      } finally {
+        mockStartupConfig = {};
+      }
+    });
+
+    it('withholds the Skills toggle on a spec whose skills are fixed (Aralab patch 14)', () => {
+      mockStartupConfig = { aralabCodeBySpec: true, aralabFixedSkillSpecs: ['alt'] };
+      const render = (specName?: string) =>
+        keysOf(
+          renderHook(() => usePaletteEntries({ conversationId: 'convo-1', specName }), {
+            wrapper: stagedWrapper(),
+          }).result,
+        );
+      try {
+        expect(render('alt')).not.toContain('builtin:skills');
+        expect(render('fast')).toContain('builtin:skills');
+        expect(render(undefined)).toContain('builtin:skills');
       } finally {
         mockStartupConfig = {};
       }

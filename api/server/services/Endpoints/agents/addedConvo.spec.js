@@ -22,6 +22,7 @@ jest.mock('@librechat/data-schemas', () => ({
 
 jest.mock('@librechat/api', () => ({
   ADDED_AGENT_ID: '__added_agent__',
+  resolveAralabSkillsToggle: (value) => value,
   initializeAgent: (...args) => mockInitializeAgent(...args),
   validateAgentModel: (...args) => mockValidateAgentModel(...args),
   loadAddedAgent: (params) => mockLoadAddedAgent(params),

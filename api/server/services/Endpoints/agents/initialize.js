@@ -57,6 +57,7 @@ const {
   getMCPRequestContext,
   createSubagentCodeRouting,
   hasEntityEmbeddings,
+  resolveAralabSkillsToggle,
 } = require('@librechat/api');
 const {
   ResourceType,
@@ -751,7 +752,12 @@ const initializeClientWithProvider = async ({
     /** The spec's `skills` config is the default the badge is seeded from; the
      *  request's explicit toggle decides (`skills: false` stays a hard opt-out). */
     const specSkillsEnabled = resolveSpecSkillsEnabled(
-      resolveSpecUserToggle(req.body?.ephemeralAgent?.skills, selectedModelSpec, 'skills'),
+      resolveSpecUserToggle(
+        /** Aralab patch 14: the Alternative Thinker's skills are fixed by its spec. */
+        resolveAralabSkillsToggle(req.body?.ephemeralAgent?.skills, selectedModelSpec),
+        selectedModelSpec,
+        'skills',
+      ),
       selectedModelSpec.skills,
     );
     if (!specSkillsEnabled) {

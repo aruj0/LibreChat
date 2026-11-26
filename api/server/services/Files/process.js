@@ -59,6 +59,8 @@ const {
   getCodeApiUploadOptions,
   withCodeApiUploadRecovery,
   isLeader,
+  isPasswordProtectedOffice,
+  PASSWORD_PROTECTED_MESSAGE,
 } = require('@librechat/api');
 const {
   convertImage,
@@ -1116,6 +1118,10 @@ const processAgentFileUpload = async ({ req, res, metadata, sseStream }) => {
           `[processAgentFileUpload] Document parser failed for ${extractionFileLabel}:`,
           errorMetadata,
         );
+        /** Aralab patch 15: tell the user the file is password-protected instead of a bare error. */
+        if (await isPasswordProtectedOffice(file.path, file.originalname)) {
+          throw new Error(PASSWORD_PROTECTED_MESSAGE);
+        }
         throw err;
       }
     };

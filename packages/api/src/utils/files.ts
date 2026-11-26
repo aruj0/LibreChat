@@ -6,6 +6,11 @@ import { UnsupportedProviderAudioError } from '~/files/upload/errors';
 
 const USER_FACING_UPLOAD_ERRORS = [
   ['Invalid file format', 'Invalid file format'],
+  /** Aralab patch 15 */
+  [
+    'is password-protected',
+    'This file is password-protected. Save a copy without the password and attach that.',
+  ],
   ['exceeds token limit', 'File content exceeds token limit'],
   ['Unable to extract text from', 'Unable to extract text from file'],
   ['No text found in document', 'No text found in document'],

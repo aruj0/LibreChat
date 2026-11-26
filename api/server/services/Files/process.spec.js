@@ -121,6 +121,10 @@ jest.mock('@librechat/api', () => {
     },
   );
   return {
+    /** Aralab patch 15 */
+    isPasswordProtectedOffice: jest.fn(async () => false),
+    PASSWORD_PROTECTED_MESSAGE:
+      'This file is password-protected. Save a copy without the password and attach that.',
     ...jest.requireActual('../../../../packages/api/src/files/storage'),
     ...jest.requireActual('../../../../packages/api/src/files/operations'),
     ...jest.requireActual('../../../../packages/api/src/files/finalize'),

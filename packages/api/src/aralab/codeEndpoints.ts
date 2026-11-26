@@ -64,7 +64,7 @@ export function isAralabSkillsFixedBySpec(
   modelSpec: SpecSkillsShape | null | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  if (modelSpec == null || !Object.hasOwn(modelSpec, 'skills')) {
+  if (modelSpec == null || !Object.prototype.hasOwnProperty.call(modelSpec, 'skills')) {
     return false;
   }
   const endpoints = getAralabCodeEndpoints(env);
